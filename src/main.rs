@@ -1,3 +1,4 @@
+#[macro_use] extern crate amethyst;
 use amethyst::{
     core::{frame_limiter::FrameRateLimitStrategy, transform::TransformBundle},
     prelude::*,
@@ -5,13 +6,14 @@ use amethyst::{
         plugins::{RenderFlat2D, RenderToWindow},
         types::DefaultBackend,
         RenderingBundle,
+        rendy
     },
     utils::application_root_dir,
+    window::{EventLoop, DisplayConfig}
 };
 use std::time::Duration;
 
 mod components;
-mod loader;
 mod state;
 mod transforms;
 
@@ -24,13 +26,14 @@ fn main() -> amethyst::Result<()> {
     let display_config_path = config_dir.join("display.ron");
 
     let assets_dir = app_root.join("assets/");
+    let event_loop = EventLoop::new();
+    let display_config = DisplayConfig::load(display_config_path).expect("Failed to load DisplayConfig");
 
     let game_data = GameDataBuilder::default()
         .with_bundle(
-            RenderingBundle::<DefaultBackend>::new()
-                .with_plugin(
-                    RenderToWindow::from_config_path(display_config_path)
-                        .with_clear([0.34, 0.36, 0.52, 1.0]),
+            RenderingBundle::<DefaultBackend>::new(display_config, &event_loop)
+                .with_plugin(RenderToWindow::new()
+                    .with_clear(rendy::hal::command::ClearColor{float32: [0.34, 0.36, 0.52, 1.0]})
                 )
                 .with_plugin(RenderFlat2D::default()),
         )?

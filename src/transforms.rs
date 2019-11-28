@@ -1,22 +1,27 @@
-use amethyst::assets::Handle;
-use amethyst::core::Transform;
-use amethyst::ecs::World;
-use amethyst::prelude::*;
-use amethyst::renderer::{Camera, SpriteRender, SpriteSheet};
+use amethyst::{
+    assets::Handle,
+    core::Transform,
+    ecs::World,
+    prelude::*,
+    renderer::{Camera, SpriteRender, SpriteSheet},
+    window::ScreenDimensions
+};
 
 use crate::components::paddle::*;
 
-const ARENA_HEIGHT: f32 = 100.0;
-const ARENA_WIDTH: f32 = 100.0;
+fn get_camera_dims(world: &mut World) -> (f32, f32) {
+        let dim = world.read_resource::<ScreenDimensions>();
+        (dim.width(), dim.height())
+}
 
 pub(crate) fn initialize_camera(world: &mut World) {
     let mut transform = Transform::default();
-    transform.set_translation_xyz(ARENA_WIDTH * 0.5, ARENA_HEIGHT * 0.5, 1.0);
-    world
-        .create_entity()
-        .with(Camera::standard_2d(ARENA_WIDTH, ARENA_HEIGHT))
-        .with(transform)
-        .build();
+    let (width, height) = get_camera_dims(world);
+    transform.set_translation_z(1.0);
+    world.create_entity()
+         .with(transform)
+         .with(Camera::standard_2d(width, height))
+         .build();
 }
 
 pub fn initialize_paddles(world: &mut World, sprite_sheet: Handle<SpriteSheet>) {
@@ -28,9 +33,10 @@ pub fn initialize_paddles(world: &mut World, sprite_sheet: Handle<SpriteSheet>) 
         sprite_number: 0,
     };
 
-    let y = ARENA_HEIGHT / 2.0;
+    let (width, height) = get_camera_dims(world);
+    let y = height / 2.0;
     left_transform.set_translation_xyz(PADDLE_WIDTH * 0.5, y, 0.0);
-    right_transform.set_translation_xyz(ARENA_WIDTH - PADDLE_WIDTH * 0.5, y, 0.0);
+    right_transform.set_translation_xyz(width - PADDLE_WIDTH * 0.5, y, 0.0);
 
     world
         .create_entity()
