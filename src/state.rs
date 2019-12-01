@@ -1,11 +1,9 @@
 use amethyst::{
-    animation::{
-        get_animation_set, AnimationBundle, AnimationCommand, AnimationControlSet, AnimationSet,
-        AnimationSetPrefab, EndControl,
-    },
+    animation::AnimationSetPrefab,
     assets::{AssetStorage, Handle, Loader,
-             Prefab, PrefabData, PrefabLoader, PrefabLoaderSystemDesc,
+             Prefab, PrefabData, PrefabLoader,
              ProgressCounter, RonFormat},
+    core::Time,
     ecs::prelude::Entity,
     error::Error,
     prelude::*,
@@ -17,7 +15,8 @@ use amethyst::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::components::paddle::Paddle;
+use crate::components::ground::initialize_ground;
+use crate::components::player::initialize_player;
 use crate::transforms::*;
 
 /// Animation ids used in a AnimationSet
@@ -86,14 +85,27 @@ impl NinjaForce {
 }
 
 impl SimpleState for NinjaForce {
+
     fn on_start(&mut self, data: StateData<'_, GameData<'_, '_>>) {
         let world = data.world;
         self.progress_counter = Some(Default::default());
+        let ground_sprite = self.load_sprite_sheet(
+            world,
+            "sprites/dirt.png",
+            "sprites/dirt.ron"
+        );
+        let player_sprite = self.load_sprite_sheet(
+            world,
+            "sprites/player.png",
+            "sprites/player.ron"
+        );
 
-        world.register::<Paddle>();
-        let sheet = self.load_sprite_sheet(world, "pong_spritesheet.png", "pong_spritesheet.ron");
-
-        initialize_paddles(world, sheet);
+        initialize_ground(world, ground_sprite);
+        initialize_player(world, player_sprite);
         initialize_camera(world);
+    }
+
+    fn update(&mut self, data: &mut StateData<'_, GameData<'_, '_>>) -> SimpleTrans {
+        Trans::None
     }
 }
