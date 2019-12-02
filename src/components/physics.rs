@@ -5,13 +5,7 @@ pub fn accelerate1d(speed: f32, accel: f32, time_step: f32) -> f32 {
 
 /// Decelerate against the current velocity direction and return the new velocity.
 pub fn decelerate1d(speed: f32, decel: f32, time_step: f32) -> f32 {
-    let original_sign = if speed > 0.0 {
-        1.0
-    } else if speed < 0.0 {
-        -1.0
-    } else {
-        0.0
-    };
+    let original_sign = speed.signum();
     original_sign * (speed.abs() - decel * time_step).max(0.0)
 }
 
@@ -33,10 +27,10 @@ impl BoundingBox2D {
     }
 
     pub fn intersects(&self, bbox: &BoundingBox2D) -> bool {
-        self.intersects_one_side(bbox) || bbox.intersects_one_side(self)
+        self.intersect_one_box(bbox) || bbox.intersect_one_box(self)
     }
 
-    pub(self) fn intersect_one_side(&self, bbox: &BoundingBox2D) -> bool {
+    pub(self) fn intersect_one_box(&self, bbox: &BoundingBox2D) -> bool {
         bbox.contains(self.corners[0])
             || bbox.contains(self.corners[1])
             || bbox.contains([self.corners[0][0], self.corners[1][1]])

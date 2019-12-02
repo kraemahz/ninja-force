@@ -25,7 +25,7 @@ impl Ground {
     pub fn new(corner: Point) -> Self {
         Self {
             bbox: BoundingBox2D {
-                corners: [corner, [corner[0] + 16.0, corner[1] + 16.0]],
+                corners: [corner, [corner[0] + 16.0, corner[1] + 24.0]],
             },
         }
     }
@@ -46,12 +46,48 @@ pub fn initialize_ground(world: &mut World, sprite_sheet: Handle<SpriteSheet>) {
         };
 
         let mut transform = Transform::default();
-        transform.set_translation_xyz(0.0 + (16 * index) as f32, 0.0, 0.0);
+        transform.set_translation_xyz((16 * index) as f32, 0.0, 0.0);
 
         world
             .create_entity()
             .with(sprite_render)
-            .with(Ground::new([0.0 + (16 * index) as f32, 0.0]))
+            .with(Ground::new([(16 * index) as f32, 0.0]))
+            .with(transform)
+            .build();
+    }
+
+    for index in 8..16 {
+        let sprite_render = SpriteRender {
+            sprite_sheet: sprite_sheet.clone(),
+            sprite_number: between.sample(&mut rng),
+        };
+
+        let mut transform = Transform::default();
+        transform.set_translation_xyz((16 * index) as f32, 32.0, 0.0);
+
+        world
+            .create_entity()
+            .with(sprite_render)
+            .with(Ground::new([(16 * index) as f32, 32.0]))
+            .with(transform)
+            .build();
+    }
+
+    let between = Uniform::from(20..30);
+
+    for index in 1..8 {
+        let sprite_render = SpriteRender {
+            sprite_sheet: sprite_sheet.clone(),
+            sprite_number: between.sample(&mut rng),
+        };
+
+        let mut transform = Transform::default();
+        transform.set_translation_xyz(16.0 * 12.0, 32.0 + (16 * index) as f32, 0.0);
+
+        world
+            .create_entity()
+            .with(sprite_render)
+            .with(Ground::new([16.0 * 12.0, 32.0 + (16 * index) as f32]))
             .with(transform)
             .build();
     }
@@ -69,10 +105,13 @@ impl<'s> System<'s> for GroundSystem {
 
     fn run(&mut self, (mut players, grounds, transforms): Self::SystemData) {
         for (player, transform) in (&mut players, &transforms).join() {
+            player.on_ground = false;
             let player_position = [transform.translation().x, transform.translation().y];
+            let player_box = player.bbox.translate(player_position);
             for (ground, ground_transform) in (&grounds, &transforms).join() {
-                if ground.bbox.contains(player_position) {
+                if ground.bbox.intersects(&player_box) {
                     player.velocity[1] = 0.0;
+                    player.on_ground = true;
                 }
             }
         }
