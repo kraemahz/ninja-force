@@ -1,30 +1,28 @@
 use amethyst::{
     assets::Handle,
-    core::{Time, Transform, SystemDesc},
-    ecs::{Join, Read, ReadStorage, System,
-          SystemData, World, WriteStorage,
-          Component, DenseVecStorage},
+    core::{SystemDesc, Time, Transform},
+    ecs::{
+        Component, DenseVecStorage, Join, Read, ReadStorage, System, SystemData, World,
+        WriteStorage,
+    },
     input::{InputHandler, StringBindings},
     prelude::*,
     renderer::{SpriteRender, SpriteSheet},
 };
 
-use crate::components::physics::{Point, accelerate1d, decelerate1d};
-
+use crate::components::physics::{accelerate1d, decelerate1d, Point};
 
 pub enum PowerUp {
     KiArmor,
     KiStar,
     KiBlade,
     KiClaws,
-    KiFan
+    KiFan,
 }
-
 
 const DEFAULT_ACCEL: f32 = 12.0;
 const DEFAULT_DECEL: f32 = 8.0;
 const MAX_SPEED: f32 = 30.0;
-
 
 pub struct Player {
     // Set by [InteractiveItemSystem, EnemySystem]
@@ -89,12 +87,16 @@ impl Player {
         match self.power_up.take() {
             Some(power_up) => {
                 match power_up {
-                    PowerUp::KiArmor => {self.power_up = None;}
-                    _ => {self.power_up = Some(PowerUp::KiArmor);}
+                    PowerUp::KiArmor => {
+                        self.power_up = None;
+                    }
+                    _ => {
+                        self.power_up = Some(PowerUp::KiArmor);
+                    }
                 }
                 true
-            },
-            None => false
+            }
+            None => false,
         }
     }
 
@@ -104,8 +106,10 @@ impl Player {
                 if self.power_up.is_none() {
                     self.power_up = Some(power_up)
                 }
-            },
-            _ => {self.power_up = Some(power_up);}
+            }
+            _ => {
+                self.power_up = Some(power_up);
+            }
         }
     }
 }
@@ -117,16 +121,17 @@ impl Component for Player {
 pub fn initialize_player(world: &mut World, sprite_sheet: Handle<SpriteSheet>) {
     let sprite_render = SpriteRender {
         sprite_sheet: sprite_sheet,
-        sprite_number: 0
+        sprite_number: 0,
     };
 
     let mut transform = Transform::default();
     transform.set_translation_xyz(16.0, 24.0, 0.0);
-    world.create_entity()
-         .with(sprite_render)
-         .with(Player::new())
-         .with(transform)
-         .build();
+    world
+        .create_entity()
+        .with(sprite_render)
+        .with(Player::new())
+        .with(transform)
+        .build();
 }
 
 pub struct PlayerMovementSystem;
@@ -159,7 +164,7 @@ impl<'s> System<'s> for PlayerPhysicsSystem {
     type SystemData = (
         WriteStorage<'s, Player>,
         WriteStorage<'s, Transform>,
-        Read<'s, Time>
+        Read<'s, Time>,
     );
 
     fn run(&mut self, (mut players, mut locals, time): Self::SystemData) {
@@ -167,18 +172,20 @@ impl<'s> System<'s> for PlayerPhysicsSystem {
         for (player,) in (&mut players,).join() {
             if player.on_ground {
                 if player.intent[0] == 0.0 {
-                    player.velocity[0] = decelerate1d(player.velocity[0],
-                                                      player.ground_decel,
-                                                      time_step);
+                    player.velocity[0] =
+                        decelerate1d(player.velocity[0], player.ground_decel, time_step);
                 } else {
-                    player.velocity[0] = accelerate1d(player.velocity[0],
-                                                      player.intent[0] * player.ground_accel,
-                                                      time_step).max(-MAX_SPEED).min(MAX_SPEED);
+                    player.velocity[0] = accelerate1d(
+                        player.velocity[0],
+                        player.intent[0] * player.ground_accel,
+                        time_step,
+                    )
+                    .max(-MAX_SPEED)
+                    .min(MAX_SPEED);
                 }
             } else {
-                player.velocity[1] = accelerate1d(player.velocity[1],
-                                                  -DEFAULT_ACCEL,
-                                                  time_step).max(-MAX_SPEED);
+                player.velocity[1] =
+                    accelerate1d(player.velocity[1], -DEFAULT_ACCEL, time_step).max(-MAX_SPEED);
             }
         }
 

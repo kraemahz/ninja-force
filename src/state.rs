@@ -1,15 +1,15 @@
 use amethyst::{
     animation::AnimationSetPrefab,
-    assets::{AssetStorage, Handle, Loader,
-             Prefab, PrefabData, PrefabLoader,
-             ProgressCounter, RonFormat},
+    assets::{
+        AssetStorage, Handle, Loader, Prefab, PrefabData, PrefabLoader, ProgressCounter, RonFormat,
+    },
     core::Time,
     ecs::prelude::Entity,
     error::Error,
     prelude::*,
     renderer::{
         formats::texture::ImageFormat,
-        sprite::{SpriteSheet, SpriteSheetFormat, SpriteRender, prefab::SpriteScenePrefab},
+        sprite::{prefab::SpriteScenePrefab, SpriteRender, SpriteSheet, SpriteSheetFormat},
         Texture,
     },
 };
@@ -40,7 +40,9 @@ pub struct NinjaForce {
 
 impl NinjaForce {
     pub fn new() -> Self {
-        Self {progress_counter: None}
+        Self {
+            progress_counter: None,
+        }
     }
 
     pub fn load_sprite_sheet(
@@ -54,9 +56,10 @@ impl NinjaForce {
             let texture_storage = world.read_resource::<AssetStorage<Texture>>();
             loader.load(
                 sprite,
-                ImageFormat::default(), 
+                ImageFormat::default(),
                 self.progress_counter.as_mut().unwrap(),
-                &texture_storage)
+                &texture_storage,
+            )
         };
         let loader = world.read_resource::<Loader>();
         let sprite_sheet_store = world.read_resource::<AssetStorage<SpriteSheet>>();
@@ -69,36 +72,20 @@ impl NinjaForce {
         )
     }
 
-    pub fn load_prefab(
-        &mut self,
-        world: &mut World,
-        prefab: &str,
-    ) -> Handle<Prefab<SpritePrefab>> {
+    pub fn load_prefab(&mut self, world: &mut World, prefab: &str) -> Handle<Prefab<SpritePrefab>> {
         world.exec(|loader: PrefabLoader<'_, SpritePrefab>| {
-            loader.load(
-                prefab,
-                RonFormat,
-                self.progress_counter.as_mut().unwrap(),
-            )
+            loader.load(prefab, RonFormat, self.progress_counter.as_mut().unwrap())
         })
     }
 }
 
 impl SimpleState for NinjaForce {
-
     fn on_start(&mut self, data: StateData<'_, GameData<'_, '_>>) {
         let world = data.world;
         self.progress_counter = Some(Default::default());
-        let ground_sprite = self.load_sprite_sheet(
-            world,
-            "sprites/dirt.png",
-            "sprites/dirt.ron"
-        );
-        let player_sprite = self.load_sprite_sheet(
-            world,
-            "sprites/player.png",
-            "sprites/player.ron"
-        );
+        let ground_sprite = self.load_sprite_sheet(world, "sprites/dirt.png", "sprites/dirt.ron");
+        let player_sprite =
+            self.load_sprite_sheet(world, "sprites/player.png", "sprites/player.ron");
 
         initialize_ground(world, ground_sprite);
         initialize_player(world, player_sprite);
