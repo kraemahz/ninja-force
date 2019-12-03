@@ -9,8 +9,9 @@ use amethyst::{
     prelude::*,
     renderer::{SpriteRender, SpriteSheet},
 };
+use serde::{Deserialize, Serialize};
 
-use crate::components::physics::{accelerate1d, decelerate1d, BoundingBox2D, Point};
+use crate::components::physics::{accelerate1d, decelerate1d, BoundingBox2D, Vector2};
 
 pub enum PowerUp {
     KiArmor,
@@ -20,66 +21,129 @@ pub enum PowerUp {
     KiFan,
 }
 
-const DEFAULT_ACCEL: f32 = 22.0;
-const DEFAULT_DECEL: f32 = 26.0;
-const MAX_SPEED: f32 = 40.0;
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct PlayerConfig {
+    pub accel_running: f32,
+    pub accel_walking: f32,
+    pub accel_climbing: f32,
+    pub decel_ground: f32,
+    pub decel_climbing: f32,
+    pub max_speed_walking: f32,
+    pub max_speed_running: f32,
+    pub max_speed_climbing: f32,
+    pub max_speed_falling: f32,
+    pub min_running_jump_speed: f32,
+    pub jump_speed_walking: f32,
+    pub jump_speed_running: f32,
+    pub jump_speed_climbing: f32,
+    pub fall_accel: f32,
+}
+
+
+impl Default for PlayerConfig {
+    fn default() -> Self {
+        Self {
+            accel_running: 22.0,
+            accel_walking: 11.0,
+            accel_climbing: 11.0,
+            decel_ground: 26.0,
+            decel_climbing: 32.0,
+            max_speed_walking: 20.0,
+            max_speed_running: 40.0,
+            max_speed_climbing: 20.0,
+            max_speed_falling: 40.0,
+            min_running_jump_speed: 20.5,
+            jump_speed_walking: 60.0,
+            jump_speed_running: 90.0,
+            jump_speed_climbing: 60.0,
+            fall_accel: 22.0,
+        }
+    }
+}
+
 
 pub struct Player {
+    pub config: PlayerConfig,
+
     // Set by [InteractiveItemSystem, EnemySystem]
     pub money: i32,
     pub power_up: Option<PowerUp>,
 
     // Set by GroundSystem
     pub bbox: BoundingBox2D,
-    pub max_speed: f32,
     pub on_ground: bool,
-    pub ground_accel: f32,
-    pub ground_decel: f32,
 
     // Set by RopeSystem
     pub climbing: bool,
 
     // Set by PlayerMovementSystem
-    pub intent: Point,
+    pub intent: Vector2,
     pub running: bool,
 
     // Set by [PlayerMovementSystem, PlayerPhysicsSystem,
     //         GroundSystem, InteractivePhysicsSystem]
-    pub velocity: Point,
+    pub velocity: Vector2,
 }
 
 impl Player {
-    pub fn new() -> Self {
-        let bbox = BoundingBox2D {corners: [[0.0, 0.0], [16.0, 32.0]]};
+    pub fn new(config: PlayerConfig) -> Self {
+        let bbox = BoundingBox2D {corners: [[4.0, 0.0], [12.0, 32.0]]};
         Player {
+            config,
             money: 0,
             power_up: None,
             bbox,
-            max_speed: MAX_SPEED,
             on_ground: true,
-            ground_accel: DEFAULT_ACCEL,
-            ground_decel: DEFAULT_DECEL,
-
             climbing: false,
-
             intent: [0.0, 0.0],
             running: false,
-
             velocity: [0.0, 0.0],
         }
     }
 
     pub fn jump(&mut self) {
-        if self.on_ground {
-            self.velocity[1] = MAX_SPEED;
+        if self.running 
+                && self.intent[0].signum() == self.velocity[0].signum()
+                && self.velocity[0].abs() >= self.config.min_running_jump_speed {
+            self.velocity[1] = self.config.jump_speed_running;
+        } else if self.on_ground {
+            self.velocity[1] = self.config.jump_speed_walking;
         } else if self.climbing {
-            self.velocity[0] = self.intent[0] * (MAX_SPEED / 2.0);
-            self.velocity[1] = MAX_SPEED / 2.0;
+            self.climbing = false;
+            self.velocity[0] = self.intent[0] * self.config.accel_climbing;
+            self.velocity[1] = self.config.jump_speed_climbing;
         }
-        if self.running && self.intent[0].signum() == self.velocity[0].signum() && self.velocity[0] >= (MAX_SPEED * 0.4) {
-            self.velocity[1] *= 1.5;
-        }
-        self.climbing = false;
+    }
+
+    pub fn fall(&mut self, time_step: f32) {
+        self.velocity[1] =
+            accelerate1d(self.velocity[1], -self.config.fall_accel, time_step)
+            .max(-self.config.max_speed_falling);
+    }
+
+    pub fn ground_slide(&mut self, time_step: f32) {
+        self.velocity[0] =
+            decelerate1d(self.velocity[0], self.config.decel_ground, time_step);
+    }
+
+    pub fn ground_move(&mut self, time_step: f32) {
+        // If the player is trying to change directions, use the ground decel as
+        // assistance.
+        let base_accel = if self.running { self.config.accel_running } else { self.config.accel_walking };
+        let max_speed = if self.running { self.config.max_speed_running } else { self.config.max_speed_walking };
+        let accel = if self.intent[0].signum() != self.velocity[0].signum() {
+            base_accel + self.config.decel_ground
+        } else {
+            base_accel
+        };
+        self.velocity[0] = accelerate1d(
+            self.velocity[0],
+            self.intent[0] * accel,
+            time_step,
+        )
+        .max(-max_speed)
+        .min(max_speed);
     }
 
     pub fn run(&mut self) {
@@ -135,18 +199,22 @@ impl Component for Player {
     type Storage = DenseVecStorage<Self>;
 }
 
-pub fn initialize_player(world: &mut World, sprite_sheet: Handle<SpriteSheet>) {
+pub fn initialize_player(world: &mut World,
+                         sprite_sheet: Handle<SpriteSheet>,
+                         player_start: Vector2) {
+    let config = *world.read_resource::<PlayerConfig>();
+
     let sprite_render = SpriteRender {
         sprite_sheet: sprite_sheet,
         sprite_number: 0,
     };
 
     let mut transform = Transform::default();
-    transform.set_translation_xyz(16.0, 24.0, 0.0);
+    transform.set_translation_xyz(player_start[0], player_start[1], 0.0);
     world
         .create_entity()
         .with(sprite_render)
-        .with(Player::new())
+        .with(Player::new(config))
         .with(transform)
         .build();
 }
@@ -193,29 +261,12 @@ impl<'s> System<'s> for PlayerPhysicsSystem {
         for (player,) in (&mut players,).join() {
             if player.on_ground {
                 if player.intent[0] == 0.0 {
-                    player.velocity[0] =
-                        decelerate1d(player.velocity[0], player.ground_decel, time_step);
+                    player.ground_slide(time_step);
                 } else {
-                    // If the player is trying to change directions, use the ground decel as
-                    // assistance.
-                    let base_accel = if player.running { player.ground_accel } else { player.ground_accel / 2.0 };
-                    let max_speed = if player.running { MAX_SPEED } else { MAX_SPEED / 2.0 };
-                    let accel = if player.intent[0].signum() != player.velocity[0].signum() {
-                        base_accel + player.ground_decel
-                    } else {
-                        base_accel
-                    };
-                    player.velocity[0] = accelerate1d(
-                        player.velocity[0],
-                        player.intent[0] * accel,
-                        time_step,
-                    )
-                    .max(-max_speed)
-                    .min(max_speed);
+                    player.ground_move(time_step);
                 }
             } else {
-                player.velocity[1] =
-                    accelerate1d(player.velocity[1], -DEFAULT_ACCEL * 2.0, time_step).max(-MAX_SPEED);
+                player.fall(time_step);
             }
         }
 

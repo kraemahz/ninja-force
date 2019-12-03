@@ -9,8 +9,9 @@ use amethyst::{
     prelude::*,
     renderer::{SpriteRender, SpriteSheet},
 };
+use serde::{Deserialize, Serialize};
 
-use crate::components::physics::{BoundingBox2D, Point};
+use crate::components::physics::{BoundingBox2D, Vector2};
 use crate::components::player::Player;
 use rand::{
     distributions::{Distribution, Uniform},
@@ -22,7 +23,7 @@ pub struct Ground {
 }
 
 impl Ground {
-    pub fn new(corner: Point) -> Self {
+    pub fn new(corner: Vector2) -> Self {
         Self {
             bbox: BoundingBox2D {
                 corners: [corner, [corner[0] + 16.0, corner[1] + 24.0]],
@@ -35,59 +36,45 @@ impl Component for Ground {
     type Storage = DenseVecStorage<Self>;
 }
 
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct GroundPosition {
+    pub num: usize,
+    pub pos: Vector2
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct GroundConfig {
+    pub elements: Vec<GroundPosition>
+}
+
+impl Default for GroundConfig {
+    fn default() -> Self {
+        Self{
+            elements: Vec::new()
+        }
+    }
+}
+
 pub fn initialize_ground(world: &mut World, sprite_sheet: Handle<SpriteSheet>) {
-    let mut rng = thread_rng();
-    let between = Uniform::from(0..10);
+    let elements: Vec<GroundPosition> = {
+        let config = world.read_resource::<GroundConfig>();
+        config.elements.iter().cloned().collect()
+    };
 
-    for index in 0..16 {
+    for elem in elements {
         let sprite_render = SpriteRender {
             sprite_sheet: sprite_sheet.clone(),
-            sprite_number: between.sample(&mut rng),
+            sprite_number: elem.num
         };
 
         let mut transform = Transform::default();
-        transform.set_translation_xyz((16 * index) as f32, 0.0, 0.0);
+        transform.set_translation_xyz(elem.pos[0], elem.pos[1], 0.0);
 
         world
             .create_entity()
             .with(sprite_render)
-            .with(Ground::new([(16 * index) as f32, 0.0]))
-            .with(transform)
-            .build();
-    }
-
-    for index in 8..16 {
-        let sprite_render = SpriteRender {
-            sprite_sheet: sprite_sheet.clone(),
-            sprite_number: between.sample(&mut rng),
-        };
-
-        let mut transform = Transform::default();
-        transform.set_translation_xyz((16 * index) as f32, 32.0, 0.0);
-
-        world
-            .create_entity()
-            .with(sprite_render)
-            .with(Ground::new([(16 * index) as f32, 32.0]))
-            .with(transform)
-            .build();
-    }
-
-    let between = Uniform::from(20..30);
-
-    for index in 1..8 {
-        let sprite_render = SpriteRender {
-            sprite_sheet: sprite_sheet.clone(),
-            sprite_number: between.sample(&mut rng),
-        };
-
-        let mut transform = Transform::default();
-        transform.set_translation_xyz(16.0 * 12.0, 32.0 + (16 * index) as f32, 0.0);
-
-        world
-            .create_entity()
-            .with(sprite_render)
-            .with(Ground::new([16.0 * 12.0, 32.0 + (16 * index) as f32]))
+            .with(Ground::new(elem.pos))
             .with(transform)
             .build();
     }
@@ -100,18 +87,30 @@ impl<'s> System<'s> for GroundSystem {
     type SystemData = (
         WriteStorage<'s, Player>,
         ReadStorage<'s, Ground>,
-        ReadStorage<'s, Transform>,
+        WriteStorage<'s, Transform>,
     );
 
-    fn run(&mut self, (mut players, grounds, transforms): Self::SystemData) {
-        for (player, transform) in (&mut players, &transforms).join() {
+    fn run(&mut self, (mut players, grounds, mut transforms): Self::SystemData) {
+        for (player, transform) in (&mut players, &mut transforms).join() {
             player.on_ground = false;
             let player_position = [transform.translation().x, transform.translation().y];
             let player_box = player.bbox.translate(player_position);
-            for (ground, ground_transform) in (&grounds, &transforms).join() {
-                if ground.bbox.intersects(&player_box) {
-                    player.velocity[1] = 0.0;
-                    player.on_ground = true;
+            for (ground,) in (&grounds,).join() {
+                if let Some(intersection) = ground.bbox.shortest_manhattan_move(&player_box) {
+                    // Hit the ground from the top
+                    if intersection[1] > 0.0 {
+                        player.on_ground = true;
+                        transform.prepend_translation_y(intersection[1]);
+                        player.velocity[1] = 0.0;
+                    // Hit the ceiling from the bottom
+                    } else if intersection[1] < 0.0 {
+                        transform.prepend_translation_y(intersection[1]);
+                        player.velocity[1] = -player.velocity[1]; 
+                    // Hit a wall.
+                    } else if intersection[0] != 0.0 {
+                        player.velocity[0] = -player.velocity[0] / 2.0;
+                        transform.prepend_translation_x(intersection[0]);
+                    }
                 }
             }
         }

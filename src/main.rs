@@ -1,6 +1,7 @@
 #[macro_use]
 extern crate amethyst;
 use amethyst::{
+    config::Config,
     core::{frame_limiter::FrameRateLimitStrategy, transform::TransformBundle},
     input::{InputBundle, StringBindings},
     prelude::*,
@@ -12,11 +13,15 @@ use amethyst::{
     ui::{RenderUi, UiBundle},
     utils::application_root_dir,
 };
+use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
+mod config;
 mod components;
 mod state;
 mod transforms;
+
+use crate::config::NinjaForceConfig;
 
 fn main() -> amethyst::Result<()> {
     amethyst::start_logger(Default::default());
@@ -27,6 +32,7 @@ fn main() -> amethyst::Result<()> {
     let assets_dir = app_root.join("assets/");
     let binding_path = config_dir.join("bindings.ron");
     let display_config_path = config_dir.join("display.ron");
+    let game_config = NinjaForceConfig::load(config_dir.join("game.ron"))?;
 
     let input_bundle =
         InputBundle::<StringBindings>::new().with_bindings_from_file(binding_path)?;
@@ -61,6 +67,9 @@ fn main() -> amethyst::Result<()> {
             FrameRateLimitStrategy::SleepAndYield(Duration::from_millis(2)),
             144,
         )
+        .with_resource(game_config.player)
+        .with_resource(game_config.ground)
+        .with_resource(game_config.arena)
         .build(game_data)?;
     game.run();
 

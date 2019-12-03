@@ -1,4 +1,4 @@
 (
- title: "Ninja Force",
- dimensions: Some((1000, 1000)),
- )
+    title: "Ninja Force",
+    dimensions: Some((1000, 1000)),
+)

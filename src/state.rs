@@ -88,7 +88,7 @@ impl SimpleState for NinjaForce {
             self.load_sprite_sheet(world, "sprites/player.png", "sprites/player.ron");
 
         initialize_ground(world, ground_sprite);
-        initialize_player(world, player_sprite);
+        initialize_player(world, player_sprite, [16., 24.]);
         initialize_camera(world);
     }
 
