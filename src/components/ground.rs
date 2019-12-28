@@ -36,22 +36,21 @@ impl Component for Ground {
     type Storage = DenseVecStorage<Self>;
 }
 
-
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct GroundPosition {
     pub num: usize,
-    pub pos: Vector2
+    pub pos: Vector2,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct GroundConfig {
-    pub elements: Vec<GroundPosition>
+    pub elements: Vec<GroundPosition>,
 }
 
 impl Default for GroundConfig {
     fn default() -> Self {
-        Self{
-            elements: Vec::new()
+        Self {
+            elements: Vec::new(),
         }
     }
 }
@@ -65,7 +64,7 @@ pub fn initialize_ground(world: &mut World, sprite_sheet: Handle<SpriteSheet>) {
     for elem in elements {
         let sprite_render = SpriteRender {
             sprite_sheet: sprite_sheet.clone(),
-            sprite_number: elem.num
+            sprite_number: elem.num,
         };
 
         let mut transform = Transform::default();
@@ -95,22 +94,36 @@ impl<'s> System<'s> for GroundSystem {
             player.on_ground = false;
             let player_position = [transform.translation().x, transform.translation().y];
             let player_box = player.bbox.translate(player_position);
+            let player_box_below = player_box.translate([0.0, -0.9]);
+
             for (ground,) in (&grounds,).join() {
-                if let Some(intersection) = ground.bbox.shortest_manhattan_move(&player_box) {
-                    // Hit the ground from the top
-                    if intersection[1] > 0.0 {
-                        player.on_ground = true;
-                        transform.prepend_translation_y(intersection[1]);
-                        player.velocity[1] = 0.0;
-                    // Hit the ceiling from the bottom
-                    } else if intersection[1] < 0.0 {
-                        transform.prepend_translation_y(intersection[1]);
-                        player.velocity[1] = -player.velocity[1]; 
-                    // Hit a wall.
-                    } else if intersection[0] != 0.0 {
-                        player.velocity[0] = -player.velocity[0] / 2.0;
-                        transform.prepend_translation_x(intersection[0]);
+                // Check intersection first as it's less expensive than the full move check.
+                if ground.bbox.intersects(&player_box) {
+                    if let Some(intersection) = ground.bbox.shortest_manhattan_move(&player_box) {
+                        // Hit the ground from the top
+                        if intersection[1] > 0.0 {
+                            player.on_ground = true;
+                            transform.prepend_translation_y(intersection[1]);
+                            // Ground should always be at an integer position.
+                            let y_pos = transform.translation().y;
+                            transform.prepend_translation_y(-(y_pos - y_pos.round()));
+                            // Don't stop upwards motion.
+                            player.velocity[1] = player.velocity[1].max(0.0);
+                        // Hit the ceiling from the bottom
+                        } else if intersection[1] < 0.0 {
+                            transform.prepend_translation_y(intersection[1]);
+                            player.velocity[1] = -player.velocity[1];
+                        // Hit a wall.
+                        } else if intersection[0] != 0.0 {
+                            player.velocity[0] = -player.velocity[0] / 2.0;
+                            transform.prepend_translation_x(intersection[0]);
+                        }
                     }
+                }
+                // Fall test. If the player moves down will they intersect the ground? If so they are
+                // on the ground. If not, they will fall.
+                if !player.on_ground && ground.bbox.intersects(&player_box_below) {
+                    player.on_ground = true;
                 }
             }
         }

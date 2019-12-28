@@ -9,6 +9,7 @@ serde = {version = "*", features=["derive"]}
 serde_derive = "*"
 objc = "=0.2.6"
 rand = "0.7"
+log = "*"
 
 [dependencies.amethyst]
 version = "0.13.2"

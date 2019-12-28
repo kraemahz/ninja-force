@@ -1,2 +1,2 @@
-#!/bin/bash -e
-cargo run --release --features metal
+#!/bin/bash
+cargo +nightly build --release --features metal

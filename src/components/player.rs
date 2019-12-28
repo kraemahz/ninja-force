@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::components::physics::{accelerate1d, decelerate1d, BoundingBox2D, Vector2};
 
+#[derive(Debug)]
 pub enum PowerUp {
     KiArmor,
     KiStar,
@@ -20,7 +21,6 @@ pub enum PowerUp {
     KiClaws,
     KiFan,
 }
-
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct PlayerConfig {
@@ -39,7 +39,6 @@ pub struct PlayerConfig {
     pub jump_speed_climbing: f32,
     pub fall_accel: f32,
 }
-
 
 impl Default for PlayerConfig {
     fn default() -> Self {
@@ -62,9 +61,10 @@ impl Default for PlayerConfig {
     }
 }
 
-
+#[derive(Debug)]
 pub struct Player {
     pub config: PlayerConfig,
+    pub game_counter: u32,
 
     // Set by [InteractiveItemSystem, EnemySystem]
     pub money: i32,
@@ -80,6 +80,7 @@ pub struct Player {
     // Set by PlayerMovementSystem
     pub intent: Vector2,
     pub running: bool,
+    pub jumping: bool,
 
     // Set by [PlayerMovementSystem, PlayerPhysicsSystem,
     //         GroundSystem, InteractivePhysicsSystem]
@@ -88,9 +89,12 @@ pub struct Player {
 
 impl Player {
     pub fn new(config: PlayerConfig) -> Self {
-        let bbox = BoundingBox2D {corners: [[4.0, 0.0], [12.0, 32.0]]};
+        let bbox = BoundingBox2D {
+            corners: [[4.0, 0.0], [12.0, 32.0]],
+        };
         Player {
             config,
+            game_counter: 0,
             money: 0,
             power_up: None,
             bbox,
@@ -98,14 +102,21 @@ impl Player {
             climbing: false,
             intent: [0.0, 0.0],
             running: false,
+            jumping: false,
             velocity: [0.0, 0.0],
         }
     }
 
     pub fn jump(&mut self) {
-        if self.running 
-                && self.intent[0].signum() == self.velocity[0].signum()
-                && self.velocity[0].abs() >= self.config.min_running_jump_speed {
+        // Don't jump again if the player is holding jump.
+        if self.jumping {
+            return;
+        }
+        self.jumping = true;
+        if self.running
+            && self.intent[0].signum() == self.velocity[0].signum()
+            && self.velocity[0].abs() >= self.config.min_running_jump_speed
+        {
             self.velocity[1] = self.config.jump_speed_running;
         } else if self.on_ground {
             self.velocity[1] = self.config.jump_speed_walking;
@@ -116,34 +127,40 @@ impl Player {
         }
     }
 
+    pub fn release_jump(&mut self) {
+        self.jumping = false;
+    }
+
     pub fn fall(&mut self, time_step: f32) {
-        self.velocity[1] =
-            accelerate1d(self.velocity[1], -self.config.fall_accel, time_step)
+        self.velocity[1] = accelerate1d(self.velocity[1], -self.config.fall_accel, time_step)
             .max(-self.config.max_speed_falling);
     }
 
     pub fn ground_slide(&mut self, time_step: f32) {
-        self.velocity[0] =
-            decelerate1d(self.velocity[0], self.config.decel_ground, time_step);
+        self.velocity[0] = decelerate1d(self.velocity[0], self.config.decel_ground, time_step);
     }
 
     pub fn ground_move(&mut self, time_step: f32) {
         // If the player is trying to change directions, use the ground decel as
         // assistance.
-        let base_accel = if self.running { self.config.accel_running } else { self.config.accel_walking };
-        let max_speed = if self.running { self.config.max_speed_running } else { self.config.max_speed_walking };
+        let base_accel = if self.running {
+            self.config.accel_running
+        } else {
+            self.config.accel_walking
+        };
+        let max_speed = if self.running {
+            self.config.max_speed_running
+        } else {
+            self.config.max_speed_walking
+        };
         let accel = if self.intent[0].signum() != self.velocity[0].signum() {
             base_accel + self.config.decel_ground
         } else {
             base_accel
         };
-        self.velocity[0] = accelerate1d(
-            self.velocity[0],
-            self.intent[0] * accel,
-            time_step,
-        )
-        .max(-max_speed)
-        .min(max_speed);
+        self.velocity[0] = accelerate1d(self.velocity[0], self.intent[0] * accel, time_step)
+            .max(-max_speed)
+            .min(max_speed);
     }
 
     pub fn run(&mut self) {
@@ -158,7 +175,6 @@ impl Player {
     }
 
     pub fn climb(&mut self) {
-        self.on_ground = false;
         self.climbing = true;
         self.velocity = [0.0, 0.0];
     }
@@ -199,9 +215,11 @@ impl Component for Player {
     type Storage = DenseVecStorage<Self>;
 }
 
-pub fn initialize_player(world: &mut World,
-                         sprite_sheet: Handle<SpriteSheet>,
-                         player_start: Vector2) {
+pub fn initialize_player(
+    world: &mut World,
+    sprite_sheet: Handle<SpriteSheet>,
+    player_start: Vector2,
+) {
     let config = *world.read_resource::<PlayerConfig>();
 
     let sprite_render = SpriteRender {
@@ -242,6 +260,8 @@ impl<'s> System<'s> for PlayerMovementSystem {
             }
             if input.action_is_down("jump").unwrap_or(false) {
                 player.jump();
+            } else {
+                player.release_jump();
             }
         }
     }
@@ -259,6 +279,7 @@ impl<'s> System<'s> for PlayerPhysicsSystem {
     fn run(&mut self, (mut players, mut locals, time): Self::SystemData) {
         let time_step = time.delta_seconds();
         for (player,) in (&mut players,).join() {
+            player.game_counter += 1;
             if player.on_ground {
                 if player.intent[0] == 0.0 {
                     player.ground_slide(time_step);

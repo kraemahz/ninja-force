@@ -10,38 +10,137 @@ pub fn decelerate1d(speed: f32, decel: f32, time_step: f32) -> f32 {
 }
 
 pub type Vector2 = [f32; 2];
+pub type Corners = [Vector2; 2];
+
+#[inline]
+pub fn x(vec: Vector2) -> f32 {
+    vec[0]
+}
+
+#[inline]
+pub fn y(vec: Vector2) -> f32 {
+    vec[1]
+}
+
+#[inline]
+pub fn left(corners: Corners) -> f32 {
+    x(corners[0])
+}
+
+#[inline]
+pub fn bottom(corners: Corners) -> f32 {
+    y(corners[0])
+}
+
+#[inline]
+pub fn right(corners: Corners) -> f32 {
+    x(corners[1])
+}
+
+#[inline]
+pub fn top(corners: Corners) -> f32 {
+    y(corners[1])
+}
+
+#[inline]
+pub fn bottom_left(corners: Corners) -> Vector2 {
+    [left(corners), bottom(corners)]
+}
+
+#[inline]
+pub fn bottom_right(corners: Corners) -> Vector2 {
+    [right(corners), bottom(corners)]
+}
+
+#[inline]
+pub fn top_left(corners: Corners) -> Vector2 {
+    [left(corners), top(corners)]
+}
+
+#[inline]
+pub fn top_right(corners: Corners) -> Vector2 {
+    [right(corners), top(corners)]
+}
+
+#[inline]
+pub fn x_midpoint(corners: Corners) -> f32 {
+    (right(corners) + left(corners)) / 2.0
+}
+
+#[inline]
+pub fn y_midpoint(corners: Corners) -> f32 {
+    (top(corners) + bottom(corners)) / 2.0
+}
 
 #[derive(Debug, Copy, Clone)]
 pub struct BoundingBox2D {
-    pub corners: [Vector2; 2],
+    pub corners: Corners,
+}
+
+#[inline]
+fn shortest_from_corner(box_corners: Corners, corner: Vector2) -> Vector2 {
+    let x_midpoint = x_midpoint(box_corners);
+    let y_midpoint = y_midpoint(box_corners);
+
+    let x_val = if corner[0] <= x_midpoint {
+        x(box_corners[0]) - x(corner)
+    } else {
+        x(box_corners[1]) - x(corner)
+    };
+
+    let y_val = if corner[1] <= y_midpoint {
+        y(box_corners[0]) - y(corner)
+    } else {
+        y(box_corners[1]) - y(corner)
+    };
+    if x_val.abs() < y_val.abs() {
+        [x_val, 0.0]
+    } else {
+        [0.0, y_val]
+    }
 }
 
 impl BoundingBox2D {
-    pub fn translate(&self, point: Vector2) -> BoundingBox2D {
-        BoundingBox2D {
-            corners: [
-                [self.corners[0][0] + point[0], self.corners[0][1] + point[1]],
-                [self.corners[1][0] + point[0], self.corners[1][1] + point[1]],
-            ],
+    pub(self) fn shortest_manhattan_one_side(&self, bbox: &BoundingBox2D) -> Option<Vector2> {
+        if self.contains_strict(bottom_left(bbox.corners)) {
+            Some(shortest_from_corner(
+                self.corners,
+                bottom_left(bbox.corners),
+            ))
+        } else if self.contains_strict(top_right(bbox.corners)) {
+            Some(shortest_from_corner(self.corners, top_right(bbox.corners)))
+        } else if self.contains_strict(top_left(bbox.corners)) {
+            Some(shortest_from_corner(self.corners, top_left(bbox.corners)))
+        } else if self.contains_strict(bottom_right(bbox.corners)) {
+            Some(shortest_from_corner(
+                self.corners,
+                bottom_right(bbox.corners),
+            ))
+        } else {
+            None
         }
     }
 
-    pub fn shortest_from_corner(&self, corner: Vector2) -> Vector2 {
-        let x_midpoint = (self.corners[1][0] + self.corners[0][0]) / 2.0;
-        let y_midpoint = (self.corners[1][1] + self.corners[0][1]) / 2.0;
+    pub(self) fn intersect_one_box(&self, bbox: &BoundingBox2D) -> bool {
+        bbox.contains(bottom_left(self.corners))
+            || bbox.contains(top_right(self.corners))
+            || bbox.contains(top_left(self.corners))
+            || bbox.contains(bottom_right(self.corners))
+    }
 
-        let x_val = if corner[0] <= x_midpoint {
-            self.corners[0][0] - corner[0]
-        } else {
-            self.corners[1][0] - corner[0]
-        };
-
-        let y_val = if corner[1] <= y_midpoint {
-            self.corners[0][1] - corner[1]
-        } else {
-            self.corners[1][1] - corner[1]
-        };
-        if x_val.abs() < y_val.abs() { [x_val, 0.0] } else { [0.0, y_val] }
+    pub fn translate(&self, point: Vector2) -> BoundingBox2D {
+        BoundingBox2D {
+            corners: [
+                [
+                    x(self.corners[0]) + x(point),
+                    y(self.corners[0]) + y(point),
+                ],
+                [
+                    x(self.corners[1]) + x(point),
+                    y(self.corners[1]) + y(point),
+                ],
+            ],
+        }
     }
 
     pub fn shortest_manhattan_move(&self, bbox: &BoundingBox2D) -> Option<Vector2> {
@@ -49,10 +148,10 @@ impl BoundingBox2D {
         let first_result = self.shortest_manhattan_one_side(bbox);
         // Check from the other side
         let pre_second_result = bbox.shortest_manhattan_one_side(self);
-        // Invert the direction of the move as from this side it should move out the other way.
+        // Invert the direction of the move as from this side. It should move out the other way.
         let second_result = match pre_second_result {
             Some(result) => Some([-result[0], -result[1]]),
-            None => None
+            None => None,
         };
 
         if first_result.is_none() {
@@ -70,44 +169,74 @@ impl BoundingBox2D {
         }
     }
 
-    pub(self) fn shortest_manhattan_one_side(&self, bbox: &BoundingBox2D) -> Option<Vector2> {
-        let bbox_top_left = [bbox.corners[0][0], bbox.corners[1][1]];
-        let bbox_bottom_right = [bbox.corners[1][0], bbox.corners[0][1]];
-        if self.contains_strict(bbox.corners[0]) {
-            Some(self.shortest_from_corner(bbox.corners[0]))
-        } else if self.contains_strict(bbox.corners[1]) {
-            Some(self.shortest_from_corner(bbox.corners[1]))
-        } else if self.contains_strict(bbox_top_left) {
-            Some(self.shortest_from_corner(bbox_top_left))
-        } else if self.contains_strict(bbox_bottom_right) {
-            Some(self.shortest_from_corner(bbox_bottom_right))
-        } else {
-            None
-        }
-    }
-
     pub fn intersects(&self, bbox: &BoundingBox2D) -> bool {
         self.intersect_one_box(bbox) || bbox.intersect_one_box(self)
     }
 
-    pub(self) fn intersect_one_box(&self, bbox: &BoundingBox2D) -> bool {
-        bbox.contains(self.corners[0])
-            || bbox.contains(self.corners[1])
-            || bbox.contains([self.corners[0][0], self.corners[1][1]])
-            || bbox.contains([self.corners[1][0], self.corners[0][1]])
-    }
-
     pub fn contains_strict(&self, point: Vector2) -> bool {
-        point[0] > self.corners[0][0]
-            && point[0] < self.corners[1][0]
-            && point[1] > self.corners[0][1]
-            && point[1] < self.corners[1][1]
+        x(point) > x(self.corners[0])
+            && x(point) < x(self.corners[1])
+            && y(point) > y(self.corners[0])
+            && y(point) < y(self.corners[1])
     }
 
     pub fn contains(&self, point: Vector2) -> bool {
-        point[0] >= self.corners[0][0]
-            && point[0] <= self.corners[1][0]
-            && point[1] >= self.corners[0][1]
-            && point[1] <= self.corners[1][1]
+        x(point) >= x(self.corners[0])
+            && x(point) <= x(self.corners[1])
+            && y(point) >= y(self.corners[0])
+            && y(point) <= y(self.corners[1])
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct InverseBoundingBox2D {
+    pub corners: Corners,
+}
+
+impl InverseBoundingBox2D {
+    pub fn contains_strict(&self, point: Vector2) -> bool {
+        x(point) < x(self.corners[0])
+            || x(point) > x(self.corners[1])
+            || y(point) < y(self.corners[0])
+            || y(point) > y(self.corners[1])
+    }
+
+    pub fn contains(&self, point: Vector2) -> bool {
+        x(point) <= x(self.corners[0])
+            || x(point) >= x(self.corners[1])
+            || y(point) <= y(self.corners[0])
+            || y(point) >= y(self.corners[1])
+    }
+
+    pub fn shortest_manhattan_move(&self, bbox: &BoundingBox2D) -> Option<Vector2> {
+        let point = if self.contains_strict(bottom_left(bbox.corners)) {
+            bottom_left(bbox.corners)
+        } else if self.contains_strict(top_right(bbox.corners)) {
+            top_right(bbox.corners)
+        } else if self.contains_strict(bottom_right(bbox.corners)) {
+            bottom_right(bbox.corners)
+        } else if self.contains_strict(top_left(bbox.corners)) {
+            top_left(bbox.corners)
+        } else {
+            return None;
+        };
+
+        let x = if x(point) < x(bottom_left(self.corners)) {
+            x(bottom_left(self.corners)) - x(point)
+        } else if x(point) > x(top_right(self.corners)) {
+            x(top_right(self.corners)) - x(point)
+        } else {
+            0.0
+        };
+
+        let y = if y(point) > y(top_right(self.corners)) {
+            y(top_right(self.corners)) - y(point)
+        } else if y(point) < y(bottom_left(self.corners)) {
+            y(bottom_left(self.corners)) - y(point)
+        } else {
+            0.0
+        };
+
+        Some([x, y])
     }
 }

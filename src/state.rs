@@ -15,9 +15,10 @@ use amethyst::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::components::arena::initialize_arena;
+use crate::components::camera::initialize_camera;
 use crate::components::ground::initialize_ground;
 use crate::components::player::initialize_player;
-use crate::transforms::*;
 
 /// Animation ids used in a AnimationSet
 #[derive(Eq, PartialOrd, PartialEq, Hash, Debug, Copy, Clone, Deserialize, Serialize)]
@@ -87,6 +88,7 @@ impl SimpleState for NinjaForce {
         let player_sprite =
             self.load_sprite_sheet(world, "sprites/player.png", "sprites/player.ron");
 
+        initialize_arena(world);
         initialize_ground(world, ground_sprite);
         initialize_player(world, player_sprite, [16., 24.]);
         initialize_camera(world);

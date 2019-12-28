@@ -1,5 +1,7 @@
 #[macro_use]
 extern crate amethyst;
+#[macro_use]
+extern crate log;
 use amethyst::{
     config::Config,
     core::{frame_limiter::FrameRateLimitStrategy, transform::TransformBundle},
@@ -16,10 +18,9 @@ use amethyst::{
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
-mod config;
 mod components;
+mod config;
 mod state;
-mod transforms;
 
 use crate::config::NinjaForceConfig;
 
@@ -45,6 +46,8 @@ fn main() -> amethyst::Result<()> {
             "movement_system",
             &["input_system"],
         )
+        .with(components::arena::ArenaSystem, "arena_system", &[])
+        .with(components::camera::CameraMovementSystem, "camera_system", &[])
         .with(components::ground::GroundSystem, "ground_system", &[])
         .with(
             components::player::PlayerPhysicsSystem,
@@ -67,9 +70,10 @@ fn main() -> amethyst::Result<()> {
             FrameRateLimitStrategy::SleepAndYield(Duration::from_millis(2)),
             144,
         )
+        .with_resource(game_config.arena)
+        .with_resource(game_config.camera)
         .with_resource(game_config.player)
         .with_resource(game_config.ground)
-        .with_resource(game_config.arena)
         .build(game_data)?;
     game.run();
 

@@ -1,19 +1,29 @@
 (
+    arena: (
+        corners: ( 
+            (0.0,   0.0),
+            (200.0, 300.0)
+        ),
+    ),
+    camera: (
+        height: 200.0,
+        width: 200.0,
+    ),
     player: (
-        accel_running: 22.0,
-	accel_walking: 11.0,
-	accel_climbing: 11.0,
-	decel_ground: 26.0,
+        accel_running: 36.0,
+	accel_walking: 20.0,
+	accel_climbing: 18.0,
+	decel_ground: 34.0,
 	decel_climbing: 32.0,
-	max_speed_walking: 20.0,
+	max_speed_walking: 27.0,
 	max_speed_running: 40.0,
-	max_speed_climbing: 20.0,
+	max_speed_climbing: 32.0,
 	max_speed_falling: 40.0,
 	min_running_jump_speed: 20.5,
-	jump_speed_walking: 60.0,
-	jump_speed_running: 90.0,
-	jump_speed_climbing: 60.0,
-	fall_accel: 32.0
+	jump_speed_walking: 93.0,
+	jump_speed_running: 120.0,
+	jump_speed_climbing: 93.0,
+	fall_accel: 90.0
     ),
     ground: (
         elements: [
@@ -43,17 +53,12 @@
             (num: 9, pos: (208., 32.)),
             (num: 4, pos: (224., 32.)),
             (num: 2, pos: (240., 32.)),
+            (num: 5, pos: (256., 32.)),
 
             (num: 29, pos: (144., 32.)),
             (num: 27, pos: (144., 48.)),
             (num: 23, pos: (144., 64.)),
             (num: 25, pos: (144., 80.)),
-            (num: 20, pos: (144., 96.)),
-            (num: 24, pos: (144., 112.)),
         ]  
     ),
-    arena: (
-        height: 200.0,
-        width: 200.0,
-    )
 )
