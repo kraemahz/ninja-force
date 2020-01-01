@@ -1,15 +1,11 @@
+use super::player::Player;
 use amethyst::{
-    assets::Handle,
     core::{math::Vector3, Transform},
-    ecs::{Join, Read, ReadStorage, System,
-          SystemData, World, WriteStorage,
-          Component, DenseVecStorage},
+    ecs::{Join, ReadStorage, System, SystemData, World, WriteStorage},
     prelude::*,
-    renderer::{Camera, SpriteRender, SpriteSheet},
-    window::ScreenDimensions,
+    renderer::Camera,
 };
 use serde::{Deserialize, Serialize};
-use super::player::Player;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct CameraConfig {
@@ -40,7 +36,6 @@ pub(crate) fn initialize_camera(world: &mut World) {
         .with(Camera::standard_2d(screen_width, screen_height))
         .build();
 }
-
 
 pub struct CameraMovementSystem;
 impl<'s> System<'s> for CameraMovementSystem {

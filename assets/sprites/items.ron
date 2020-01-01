@@ -1,0 +1,8 @@
+List((
+    texture_width: 160,
+    texture_height: 160,
+    sprites: [
+        (x: 0, y: 0, width: 4, height: 16),
+        (x: 16, y: 0, width: 16, height: 16),
+    ]
+))

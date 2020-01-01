@@ -3,7 +3,7 @@ use amethyst::{
     assets::{
         AssetStorage, Handle, Loader, Prefab, PrefabData, PrefabLoader, ProgressCounter, RonFormat,
     },
-    core::Time,
+    core::math::Vector2,
     ecs::prelude::Entity,
     error::Error,
     prelude::*,
@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use crate::components::arena::initialize_arena;
 use crate::components::camera::initialize_camera;
 use crate::components::ground::initialize_ground;
+use crate::components::items::initialize_items;
 use crate::components::player::initialize_player;
 
 /// Animation ids used in a AnimationSet
@@ -73,7 +74,7 @@ impl NinjaForce {
         )
     }
 
-    pub fn load_prefab(&mut self, world: &mut World, prefab: &str) -> Handle<Prefab<SpritePrefab>> {
+    pub fn _load_prefab(&mut self, world: &mut World, prefab: &str) -> Handle<Prefab<SpritePrefab>> {
         world.exec(|loader: PrefabLoader<'_, SpritePrefab>| {
             loader.load(prefab, RonFormat, self.progress_counter.as_mut().unwrap())
         })
@@ -85,16 +86,18 @@ impl SimpleState for NinjaForce {
         let world = data.world;
         self.progress_counter = Some(Default::default());
         let ground_sprite = self.load_sprite_sheet(world, "sprites/dirt.png", "sprites/dirt.ron");
+        let item_sprite = self.load_sprite_sheet(world, "sprites/items.png", "sprites/items.ron");
         let player_sprite =
             self.load_sprite_sheet(world, "sprites/player.png", "sprites/player.ron");
 
         initialize_arena(world);
         initialize_ground(world, ground_sprite);
-        initialize_player(world, player_sprite, [16., 24.]);
+        initialize_items(world, item_sprite);
+        initialize_player(world, player_sprite, Vector2::new(16., 24.));
         initialize_camera(world);
     }
 
-    fn update(&mut self, data: &mut StateData<'_, GameData<'_, '_>>) -> SimpleTrans {
+    fn update(&mut self, _data: &mut StateData<'_, GameData<'_, '_>>) -> SimpleTrans {
         Trans::None
     }
 }

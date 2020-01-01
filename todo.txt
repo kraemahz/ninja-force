@@ -1,0 +1,7 @@
+~ air control
+~ tweak gravity and jumps
+~ ducking
+~ climbing rope
+~ powerups
+* enemies
+* damage

@@ -1,16 +1,13 @@
 use amethyst::{
     assets::Handle,
-    core::{SystemDesc, Time, Transform},
-    ecs::{
-        Component, DenseVecStorage, Join, Read, ReadStorage, System, SystemData, World,
-        WriteStorage,
-    },
+    core::{math::Vector2, SystemDesc, Time, Transform},
+    ecs::{Component, DenseVecStorage, Join, Read, ReadStorage, System, SystemData, World, WriteStorage},
     input::{InputHandler, StringBindings},
     prelude::*,
     renderer::{SpriteRender, SpriteSheet},
 };
 
-use crate::components::physics::{x, y, Corners, InverseBoundingBox2D, Vector2};
+use crate::components::physics::{Corners, InverseBoundingBox2D};
 use crate::components::player::Player;
 use serde::{Deserialize, Serialize};
 
@@ -22,7 +19,10 @@ pub struct ArenaConfig {
 impl Default for ArenaConfig {
     fn default() -> Self {
         Self {
-            corners: [[0.0, 0.0], [200.0, 200.0]],
+            corners: Corners {
+                bottom_left: Vector2::new(0.0, 0.0),
+                top_right: Vector2::new(200.0, 200.0),
+            },
         }
     }
 }
@@ -63,15 +63,16 @@ impl<'s> System<'s> for ArenaSystem {
 
     fn run(&mut self, (mut players, arenas, mut transforms): Self::SystemData) {
         for (player, transform) in (&mut players, &mut transforms).join() {
-            let player_position = [transform.translation().x, transform.translation().y];
+            let player_position =
+                Vector2::new(transform.translation().x, transform.translation().y);
             let player_box = player.bbox.translate(player_position);
             for (arena,) in (&arenas,).join() {
                 if let Some(intersection) = arena.inverse_bbox.shortest_manhattan_move(&player_box)
                 {
-                    player.velocity[0] = 0.0;
-                    player.velocity[1] = 0.0;
-                    transform.prepend_translation_x(x(intersection));
-                    transform.prepend_translation_y(y(intersection));
+                    player.velocity.x = 0.0;
+                    player.velocity.y = 0.0;
+                    transform.prepend_translation_x(intersection.x);
+                    transform.prepend_translation_y(intersection.y);
                 }
             }
         }

@@ -2,6 +2,9 @@
 extern crate amethyst;
 #[macro_use]
 extern crate log;
+#[macro_use]
+extern crate lazy_static;
+
 use amethyst::{
     config::Config,
     core::{frame_limiter::FrameRateLimitStrategy, transform::TransformBundle},
@@ -15,7 +18,6 @@ use amethyst::{
     ui::{RenderUi, UiBundle},
     utils::application_root_dir,
 };
-use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 mod components;
@@ -47,12 +49,22 @@ fn main() -> amethyst::Result<()> {
             &["input_system"],
         )
         .with(components::arena::ArenaSystem, "arena_system", &[])
-        .with(components::camera::CameraMovementSystem, "camera_system", &[])
+        .with(
+            components::camera::CameraMovementSystem,
+            "camera_system",
+            &[],
+        )
         .with(components::ground::GroundSystem, "ground_system", &[])
+        .with(components::items::InteractableItemSystem, "item_system", &["movement_system"])
         .with(
             components::player::PlayerPhysicsSystem,
             "player_physics_system",
             &["ground_system", "movement_system"],
+        )
+        .with(
+            components::player::PlayerSpriteSystem,
+            "player_sprite_system",
+            &["player_physics_system"],
         )
         .with_bundle(UiBundle::<StringBindings>::new())?
         .with_bundle(
@@ -72,8 +84,9 @@ fn main() -> amethyst::Result<()> {
         )
         .with_resource(game_config.arena)
         .with_resource(game_config.camera)
-        .with_resource(game_config.player)
+        .with_resource(game_config.items)
         .with_resource(game_config.ground)
+        .with_resource(game_config.player)
         .build(game_data)?;
     game.run();
 

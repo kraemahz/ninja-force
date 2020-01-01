@@ -1,19 +1,18 @@
 use amethyst::{
     assets::Handle,
-    core::{SystemDesc, Time, Transform},
-    ecs::{
-        Component, DenseVecStorage, Join, Read, ReadStorage, System, SystemData, World,
-        WriteStorage,
-    },
+    core::{math::Vector2, Time, Transform},
+    ecs::{Component, DenseVecStorage, Join, Read, ReadStorage, System, World, WriteStorage},
     input::{InputHandler, StringBindings},
     prelude::*,
     renderer::{SpriteRender, SpriteSheet},
 };
 use serde::{Deserialize, Serialize};
 
-use crate::components::physics::{accelerate1d, decelerate1d, BoundingBox2D, Vector2};
+use crate::components::physics::{
+    accelerate1d, decelerate1d, BoundingBox2D, Corners, MINIMUM_CLIP,
+};
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone, Deserialize, Serialize)]
 pub enum PowerUp {
     KiArmor,
     KiStar,
@@ -61,10 +60,32 @@ impl Default for PlayerConfig {
     }
 }
 
+#[derive(Debug, PartialEq)]
+pub enum PlayerAnimationState {
+    Standing,
+    Walking,
+    Crouching,
+    Running,
+    Stopping,
+    Jumping,
+    Falling,
+    Damaged,
+    Dying,
+    Climbing,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum PlayerStance {
+    Standing,
+    Crouching,
+    Climbing
+}
+
 #[derive(Debug)]
 pub struct Player {
     pub config: PlayerConfig,
     pub game_counter: u32,
+    pub animation_state: PlayerAnimationState,
 
     // Set by [InteractiveItemSystem, EnemySystem]
     pub money: i32,
@@ -72,58 +93,80 @@ pub struct Player {
 
     // Set by GroundSystem
     pub bbox: BoundingBox2D,
+    pub stance: PlayerStance,
     pub on_ground: bool,
-
-    // Set by RopeSystem
-    pub climbing: bool,
+    pub blocked: bool,
 
     // Set by PlayerMovementSystem
-    pub intent: Vector2,
+    pub intent: Vector2<f32>,
     pub running: bool,
     pub jumping: bool,
 
     // Set by [PlayerMovementSystem, PlayerPhysicsSystem,
     //         GroundSystem, InteractivePhysicsSystem]
-    pub velocity: Vector2,
+    pub velocity: Vector2<f32>,
+}
+
+lazy_static! {
+    static ref STANDING_BBOX: BoundingBox2D = {
+        BoundingBox2D {
+            corners: Corners {
+                bottom_left: Vector2::new(4.0, 0.0),
+                top_right: Vector2::new(12.0, 15.5),
+            },
+        }
+    };
+}
+
+lazy_static! {
+    static ref CROUCHING_BBOX: BoundingBox2D = {
+        BoundingBox2D {
+            corners: Corners {
+                bottom_left: Vector2::new(4.0, 0.0),
+                top_right: Vector2::new(12.0, 7.5),
+            },
+        }
+    };
 }
 
 impl Player {
     pub fn new(config: PlayerConfig) -> Self {
-        let bbox = BoundingBox2D {
-            corners: [[4.0, 0.0], [12.0, 32.0]],
-        };
+        let bbox = *STANDING_BBOX;
         Player {
             config,
             game_counter: 0,
+            animation_state: PlayerAnimationState::Standing,
             money: 0,
             power_up: None,
             bbox,
+            stance: PlayerStance::Standing,
             on_ground: true,
-            climbing: false,
-            intent: [0.0, 0.0],
+            blocked: false,
+            intent: Vector2::new(0.0, 0.0),
             running: false,
             jumping: false,
-            velocity: [0.0, 0.0],
+            velocity: Vector2::new(0.0, 0.0),
         }
     }
 
     pub fn jump(&mut self) {
         // Don't jump again if the player is holding jump.
-        if self.jumping {
+        if self.jumping || self.blocked {
             return;
         }
+        self.animation_state = PlayerAnimationState::Jumping;
         self.jumping = true;
         if self.running
-            && self.intent[0].signum() == self.velocity[0].signum()
-            && self.velocity[0].abs() >= self.config.min_running_jump_speed
+            && self.intent.x.signum() == self.velocity.x.signum()
+            && self.velocity.x.abs() >= self.config.min_running_jump_speed
         {
-            self.velocity[1] = self.config.jump_speed_running;
+            self.velocity.y = self.config.jump_speed_running;
         } else if self.on_ground {
-            self.velocity[1] = self.config.jump_speed_walking;
-        } else if self.climbing {
-            self.climbing = false;
-            self.velocity[0] = self.intent[0] * self.config.accel_climbing;
-            self.velocity[1] = self.config.jump_speed_climbing;
+            self.velocity.y = self.config.jump_speed_walking;
+        } else if self.stance == PlayerStance::Climbing {
+            self.stance = PlayerStance::Standing;
+            self.velocity.x = self.intent.x * self.config.accel_climbing;
+            self.velocity.y = self.config.jump_speed_climbing;
         }
     }
 
@@ -132,33 +175,62 @@ impl Player {
     }
 
     pub fn fall(&mut self, time_step: f32) {
-        self.velocity[1] = accelerate1d(self.velocity[1], -self.config.fall_accel, time_step)
+        self.velocity.y = accelerate1d(self.velocity.y, -self.config.fall_accel, time_step)
             .max(-self.config.max_speed_falling);
+        // Air control
+        self.velocity.x = accelerate1d(
+            self.velocity.x,
+            self.intent.x * self.config.max_speed_walking,
+            time_step,
+        )
+        .min(self.config.max_speed_running)
+        .max(-self.config.max_speed_running);
+        if self.velocity.y < 0.0 {
+            self.animation_state = if self.stance == PlayerStance::Crouching {
+                PlayerAnimationState::Crouching
+            } else {
+                PlayerAnimationState::Falling
+            };
+        }
     }
 
     pub fn ground_slide(&mut self, time_step: f32) {
-        self.velocity[0] = decelerate1d(self.velocity[0], self.config.decel_ground, time_step);
+        self.velocity.x = decelerate1d(self.velocity.x, self.config.decel_ground, time_step);
+        self.animation_state = if self.stance == PlayerStance::Crouching {
+            PlayerAnimationState::Crouching
+        } else {
+            if self.velocity.x.abs() < MINIMUM_CLIP {
+                PlayerAnimationState::Standing
+            } else {
+                PlayerAnimationState::Stopping
+            }
+        };
     }
 
     pub fn ground_move(&mut self, time_step: f32) {
         // If the player is trying to change directions, use the ground decel as
         // assistance.
-        let base_accel = if self.running {
-            self.config.accel_running
+        let (base_accel, max_speed) = if self.running {
+            self.animation_state = if self.stance == PlayerStance::Crouching {
+                PlayerAnimationState::Crouching
+            } else {
+                PlayerAnimationState::Running
+            };
+            (self.config.accel_running, self.config.max_speed_running)
         } else {
-            self.config.accel_walking
+            self.animation_state = if self.stance == PlayerStance::Crouching {
+                PlayerAnimationState::Crouching
+            } else {
+                PlayerAnimationState::Walking
+            };
+            (self.config.accel_walking, self.config.max_speed_walking)
         };
-        let max_speed = if self.running {
-            self.config.max_speed_running
-        } else {
-            self.config.max_speed_walking
-        };
-        let accel = if self.intent[0].signum() != self.velocity[0].signum() {
+        let accel = if self.intent.x.signum() != self.velocity.x.signum() {
             base_accel + self.config.decel_ground
         } else {
             base_accel
         };
-        self.velocity[0] = accelerate1d(self.velocity[0], self.intent[0] * accel, time_step)
+        self.velocity.x = accelerate1d(self.velocity.x, self.intent.x * accel, time_step)
             .max(-max_speed)
             .min(max_speed);
     }
@@ -170,13 +242,45 @@ impl Player {
     }
 
     pub fn reset_frame(&mut self) {
-        self.intent = [0.0, 0.0];
+        self.intent = Vector2::new(0.0, 0.0);
         self.running = false;
     }
 
     pub fn climb(&mut self) {
-        self.climbing = true;
-        self.velocity = [0.0, 0.0];
+        // Refuse to climb if holding jump.
+        if self.jumping {
+            return;
+        }
+        self.stance = PlayerStance::Climbing;
+        self.velocity = Vector2::new(0.0, 0.0);
+    }
+
+    pub fn climb_move(&mut self, time_step: f32) {
+        self.animation_state = PlayerAnimationState::Climbing;
+        self.velocity.x = accelerate1d(self.velocity.x, self.intent.x * self.config.accel_climbing, time_step)
+            .max(-self.config.max_speed_climbing)
+            .min(self.config.max_speed_climbing);
+        self.velocity.y = accelerate1d(self.velocity.y, self.intent.y * self.config.accel_climbing, time_step)
+            .max(-self.config.max_speed_climbing)
+            .min(self.config.max_speed_climbing);
+    }
+
+    pub fn update_stance(&mut self) {
+        if self.stance == PlayerStance::Climbing {
+        } else if (self.on_ground || self.stance == PlayerStance::Crouching) && self.intent.y < 0.0 {
+            self.stance = PlayerStance::Crouching;
+            self.running = false;
+        } else {
+            self.stance = PlayerStance::Standing;
+        }
+    }
+
+    pub fn update_bounding_box(&mut self) {
+        self.bbox = if self.stance == PlayerStance::Crouching {
+            *CROUCHING_BBOX
+        } else {
+            *STANDING_BBOX
+        }
     }
 
     /// Damage the player. Returns false if the Player is dead.
@@ -191,9 +295,13 @@ impl Player {
                         self.power_up = Some(PowerUp::KiArmor);
                     }
                 }
+                self.animation_state = PlayerAnimationState::Damaged;
                 true
             }
-            None => false,
+            None => {
+                self.animation_state = PlayerAnimationState::Dying;
+                false
+            }
         }
     }
 
@@ -218,7 +326,7 @@ impl Component for Player {
 pub fn initialize_player(
     world: &mut World,
     sprite_sheet: Handle<SpriteSheet>,
-    player_start: Vector2,
+    player_start: Vector2<f32>,
 ) {
     let config = *world.read_resource::<PlayerConfig>();
 
@@ -228,7 +336,7 @@ pub fn initialize_player(
     };
 
     let mut transform = Transform::default();
-    transform.set_translation_xyz(player_start[0], player_start[1], 0.0);
+    transform.set_translation_xyz(player_start.x, player_start.y, 0.0);
     world
         .create_entity()
         .with(sprite_render)
@@ -253,15 +361,35 @@ impl<'s> System<'s> for PlayerMovementSystem {
                 player.run();
             }
             if let Some(mv_x_axis) = input.axis_value("x") {
-                player.intent[0] = mv_x_axis;
+                player.intent.x = mv_x_axis;
             }
             if let Some(mv_y_axis) = input.axis_value("y") {
-                player.intent[1] = mv_y_axis;
+                player.intent.y = mv_y_axis;
             }
             if input.action_is_down("jump").unwrap_or(false) {
                 player.jump();
             } else {
                 player.release_jump();
+            }
+            player.update_stance();
+        }
+    }
+}
+
+pub struct PlayerSpriteSystem;
+
+impl<'s> System<'s> for PlayerSpriteSystem {
+    type SystemData = (ReadStorage<'s, Player>, WriteStorage<'s, SpriteRender>);
+
+    fn run(&mut self, (players, mut renders): Self::SystemData) {
+        for (player, render) in (&players, &mut renders).join() {
+            match player.animation_state {
+                PlayerAnimationState::Crouching => {
+                    render.sprite_number = 1;
+                }
+                _ => {
+                    render.sprite_number = 0;
+                }
             }
         }
     }
@@ -278,22 +406,42 @@ impl<'s> System<'s> for PlayerPhysicsSystem {
 
     fn run(&mut self, (mut players, mut locals, time): Self::SystemData) {
         let time_step = time.delta_seconds();
-        for (player,) in (&mut players,).join() {
+        for player in (&mut players).join() {
             player.game_counter += 1;
+
+            if player.on_ground && player.stance == PlayerStance::Climbing {
+                if player.intent.y < 0.0 {
+                    player.stance = PlayerStance::Standing;
+                    continue;
+                }
+            }
+
+            if player.stance == PlayerStance::Climbing {
+                if player.intent.y != 0.0 || player.intent.x != 0.0 {
+                    player.climb_move(time_step);
+                } else {
+                    player.velocity.x = 0.0;
+                    player.velocity.y = 0.0;
+                }
+                continue;
+            }
+
             if player.on_ground {
-                if player.intent[0] == 0.0 {
+                if player.intent.x == 0.0 {
                     player.ground_slide(time_step);
                 } else {
                     player.ground_move(time_step);
                 }
-            } else {
+                player.update_bounding_box();
+            }  else {
                 player.fall(time_step);
+                player.update_bounding_box();
             }
         }
 
         for (player, local) in (&players, &mut locals).join() {
-            local.prepend_translation_x(player.velocity[0] * time_step);
-            local.prepend_translation_y(player.velocity[1] * time_step);
+            local.prepend_translation_x(player.velocity.x * time_step);
+            local.prepend_translation_y(player.velocity.y * time_step);
         }
     }
 }

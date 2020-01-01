@@ -5,6 +5,7 @@ authors = []
 edition = "2018"
 
 [dependencies]
+lazy_static = "*"
 serde = {version = "*", features=["derive"]}
 serde_derive = "*"
 objc = "=0.2.6"
@@ -16,7 +17,7 @@ version = "0.13.2"
 path = "../amethyst"
 
 [features]
-default = ["vulkan"]
+default = ["metal"]
 empty = ["amethyst/empty"]
 metal = ["amethyst/metal"]
 vulkan = ["amethyst/vulkan"]

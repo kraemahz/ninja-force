@@ -1,11 +1,11 @@
-use amethyst::config::Config;
 use serde::{Deserialize, Serialize};
 
 use crate::components::{
     arena::ArenaConfig,
     camera::CameraConfig,
     ground::GroundConfig,
-    player::PlayerConfig
+    items::ItemConfig,
+    player::PlayerConfig,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -13,6 +13,7 @@ pub struct NinjaForceConfig {
     pub arena: ArenaConfig,
     pub camera: CameraConfig,
     pub ground: GroundConfig,
+    pub items: ItemConfig,
     pub player: PlayerConfig,
 }
 
@@ -21,8 +22,9 @@ impl Default for NinjaForceConfig {
         Self {
             arena: ArenaConfig::default(),
             camera: CameraConfig::default(),
-            player: PlayerConfig::default(),
             ground: GroundConfig::default(),
+            items: ItemConfig::default(),
+            player: PlayerConfig::default(),
         }
     }
 }
