@@ -1,15 +1,16 @@
 use amethyst::{
     assets::Handle,
     core::{math::Vector2, Time, Transform},
-    ecs::{Component, DenseVecStorage, Join, Read, ReadStorage, System, World, WriteStorage},
+    ecs::{Component, DenseVecStorage, Join, Read, ReadStorage, System, World, Write, WriteStorage},
     input::{InputHandler, StringBindings},
     prelude::*,
     renderer::{SpriteRender, SpriteSheet},
 };
 use serde::{Deserialize, Serialize};
 
-use crate::components::physics::{
-    accelerate1d, decelerate1d, BoundingBox2D, Corners, MINIMUM_CLIP,
+use crate::geometry::Corners;
+use super::physics::{
+    accelerate1d, decelerate1d, BoundingBox2D, PhysicsBox, MINIMUM_CLIP,
 };
 
 #[derive(Debug, Copy, Clone, Deserialize, Serialize)]
@@ -88,11 +89,11 @@ pub struct Player {
     pub animation_state: PlayerAnimationState,
 
     // Set by [InteractiveItemSystem, EnemySystem]
-    pub money: i32,
+    pub money: usize,
+    pub score: usize,
     pub power_up: Option<PowerUp>,
 
     // Set by GroundSystem
-    pub bbox: BoundingBox2D,
     pub stance: PlayerStance,
     pub on_ground: bool,
     pub blocked: bool,
@@ -101,10 +102,7 @@ pub struct Player {
     pub intent: Vector2<f32>,
     pub running: bool,
     pub jumping: bool,
-
-    // Set by [PlayerMovementSystem, PlayerPhysicsSystem,
-    //         GroundSystem, InteractivePhysicsSystem]
-    pub velocity: Vector2<f32>,
+    pub jump_edge: bool,
 }
 
 lazy_static! {
@@ -129,63 +127,64 @@ lazy_static! {
     };
 }
 
+impl Default for Player {
+    fn default() -> Self {
+        Player::new(PlayerConfig::default())
+    }
+}
+
 impl Player {
     pub fn new(config: PlayerConfig) -> Self {
-        let bbox = *STANDING_BBOX;
         Player {
             config,
             game_counter: 0,
             animation_state: PlayerAnimationState::Standing,
             money: 0,
+            score: 0,
             power_up: None,
-            bbox,
             stance: PlayerStance::Standing,
             on_ground: true,
             blocked: false,
             intent: Vector2::new(0.0, 0.0),
             running: false,
             jumping: false,
-            velocity: Vector2::new(0.0, 0.0),
+            jump_edge: false,
         }
     }
 
-    pub fn jump(&mut self) {
+    pub fn maybe_jump(&mut self, physics: &mut PhysicsBox) {
         // Don't jump again if the player is holding jump.
-        if self.jumping || self.blocked {
+        if !self.jump_edge || self.blocked {
             return;
         }
         self.animation_state = PlayerAnimationState::Jumping;
         self.jumping = true;
         if self.running
-            && self.intent.x.signum() == self.velocity.x.signum()
-            && self.velocity.x.abs() >= self.config.min_running_jump_speed
+            && self.intent.x.signum() == physics.velocity.x.signum()
+            && physics.velocity.x.abs() >= self.config.min_running_jump_speed
         {
-            self.velocity.y = self.config.jump_speed_running;
+            physics.velocity.y = self.config.jump_speed_running;
         } else if self.on_ground {
-            self.velocity.y = self.config.jump_speed_walking;
+            physics.velocity.y = self.config.jump_speed_walking;
         } else if self.stance == PlayerStance::Climbing {
             self.stance = PlayerStance::Standing;
-            self.velocity.x = self.intent.x * self.config.accel_climbing;
-            self.velocity.y = self.config.jump_speed_climbing;
+            physics.velocity.x = self.intent.x * self.config.accel_climbing;
+            physics.velocity.y = self.config.jump_speed_climbing;
         }
     }
 
-    pub fn release_jump(&mut self) {
-        self.jumping = false;
-    }
-
-    pub fn fall(&mut self, time_step: f32) {
-        self.velocity.y = accelerate1d(self.velocity.y, -self.config.fall_accel, time_step)
+    pub fn fall(&mut self, physics: &mut PhysicsBox, time_step: f32) {
+        physics.velocity.y = accelerate1d(physics.velocity.y, -self.config.fall_accel, time_step)
             .max(-self.config.max_speed_falling);
         // Air control
-        self.velocity.x = accelerate1d(
-            self.velocity.x,
+        physics.velocity.x = accelerate1d(
+            physics.velocity.x,
             self.intent.x * self.config.max_speed_walking,
             time_step,
         )
         .min(self.config.max_speed_running)
         .max(-self.config.max_speed_running);
-        if self.velocity.y < 0.0 {
+        if physics.velocity.y < 0.0 {
             self.animation_state = if self.stance == PlayerStance::Crouching {
                 PlayerAnimationState::Crouching
             } else {
@@ -194,12 +193,12 @@ impl Player {
         }
     }
 
-    pub fn ground_slide(&mut self, time_step: f32) {
-        self.velocity.x = decelerate1d(self.velocity.x, self.config.decel_ground, time_step);
+    pub fn ground_slide(&mut self, physics: &mut PhysicsBox, time_step: f32) {
+        physics.velocity.x = decelerate1d(physics.velocity.x, self.config.decel_ground, time_step);
         self.animation_state = if self.stance == PlayerStance::Crouching {
             PlayerAnimationState::Crouching
         } else {
-            if self.velocity.x.abs() < MINIMUM_CLIP {
+            if physics.velocity.x.abs() < MINIMUM_CLIP {
                 PlayerAnimationState::Standing
             } else {
                 PlayerAnimationState::Stopping
@@ -207,7 +206,7 @@ impl Player {
         };
     }
 
-    pub fn ground_move(&mut self, time_step: f32) {
+    pub fn ground_move(&mut self, physics: &mut PhysicsBox, time_step: f32) {
         // If the player is trying to change directions, use the ground decel as
         // assistance.
         let (base_accel, max_speed) = if self.running {
@@ -225,12 +224,12 @@ impl Player {
             };
             (self.config.accel_walking, self.config.max_speed_walking)
         };
-        let accel = if self.intent.x.signum() != self.velocity.x.signum() {
+        let accel = if self.intent.x.signum() != physics.velocity.x.signum() {
             base_accel + self.config.decel_ground
         } else {
             base_accel
         };
-        self.velocity.x = accelerate1d(self.velocity.x, self.intent.x * accel, time_step)
+        physics.velocity.x = accelerate1d(physics.velocity.x, self.intent.x * accel, time_step)
             .max(-max_speed)
             .min(max_speed);
     }
@@ -244,6 +243,7 @@ impl Player {
     pub fn reset_frame(&mut self) {
         self.intent = Vector2::new(0.0, 0.0);
         self.running = false;
+        self.jump_edge = false;
     }
 
     pub fn climb(&mut self) {
@@ -252,22 +252,28 @@ impl Player {
             return;
         }
         self.stance = PlayerStance::Climbing;
-        self.velocity = Vector2::new(0.0, 0.0);
     }
 
-    pub fn climb_move(&mut self, time_step: f32) {
+    pub fn climb_move(&mut self, physics: &mut PhysicsBox, time_step: f32) {
+        if self.intent.y == 0.0 && self.intent.x == 0.0 {
+            physics.velocity.x = 0.0;
+            physics.velocity.y = 0.0;
+            return;
+        }
+
         self.animation_state = PlayerAnimationState::Climbing;
-        self.velocity.x = accelerate1d(self.velocity.x, self.intent.x * self.config.accel_climbing, time_step)
+        physics.velocity.x = accelerate1d(physics.velocity.x, self.intent.x * self.config.accel_climbing, time_step)
             .max(-self.config.max_speed_climbing)
             .min(self.config.max_speed_climbing);
-        self.velocity.y = accelerate1d(self.velocity.y, self.intent.y * self.config.accel_climbing, time_step)
+        physics.velocity.y = accelerate1d(physics.velocity.y, self.intent.y * self.config.accel_climbing, time_step)
             .max(-self.config.max_speed_climbing)
             .min(self.config.max_speed_climbing);
     }
 
-    pub fn update_stance(&mut self) {
+    pub fn initial_stance(&mut self) {
+        let intends_crouch = (self.on_ground || self.stance == PlayerStance::Crouching) && self.intent.y < 0.0;
         if self.stance == PlayerStance::Climbing {
-        } else if (self.on_ground || self.stance == PlayerStance::Crouching) && self.intent.y < 0.0 {
+        } else if self.blocked || intends_crouch {
             self.stance = PlayerStance::Crouching;
             self.running = false;
         } else {
@@ -275,8 +281,8 @@ impl Player {
         }
     }
 
-    pub fn update_bounding_box(&mut self) {
-        self.bbox = if self.stance == PlayerStance::Crouching {
+    pub fn update_bounding_box(&self, physics: &mut PhysicsBox) {
+        physics.bbox = if self.stance == PlayerStance::Crouching {
             *CROUCHING_BBOX
         } else {
             *STANDING_BBOX
@@ -335,26 +341,28 @@ pub fn initialize_player(
         sprite_number: 0,
     };
 
+    let physics_box = PhysicsBox::new(*STANDING_BBOX);
     let mut transform = Transform::default();
     transform.set_translation_xyz(player_start.x, player_start.y, 0.0);
     world
         .create_entity()
         .with(sprite_render)
         .with(Player::new(config))
+        .with(physics_box)
         .with(transform)
         .build();
 }
 
-pub struct PlayerMovementSystem;
+pub struct PlayerInputSystem;
 
-impl<'s> System<'s> for PlayerMovementSystem {
+impl<'s> System<'s> for PlayerInputSystem {
     type SystemData = (
         WriteStorage<'s, Player>,
         Read<'s, InputHandler<StringBindings>>,
     );
 
     fn run(&mut self, (mut players, input): Self::SystemData) {
-        for (player,) in (&mut players,).join() {
+        for player in (&mut players).join() {
             player.reset_frame();
 
             if input.action_is_down("run").unwrap_or(false) {
@@ -366,12 +374,10 @@ impl<'s> System<'s> for PlayerMovementSystem {
             if let Some(mv_y_axis) = input.axis_value("y") {
                 player.intent.y = mv_y_axis;
             }
-            if input.action_is_down("jump").unwrap_or(false) {
-                player.jump();
-            } else {
-                player.release_jump();
-            }
-            player.update_stance();
+            let jump_down = input.action_is_down("jump").unwrap_or(false);
+            player.jump_edge = jump_down && !player.jumping;
+            player.jumping = jump_down;
+            debug!("intent: {:?}", player.intent);
         }
     }
 }
@@ -395,53 +401,44 @@ impl<'s> System<'s> for PlayerSpriteSystem {
     }
 }
 
-pub struct PlayerPhysicsSystem;
+pub struct PlayerVelocitySystem;
 
-impl<'s> System<'s> for PlayerPhysicsSystem {
+impl<'s> System<'s> for PlayerVelocitySystem {
     type SystemData = (
         WriteStorage<'s, Player>,
-        WriteStorage<'s, Transform>,
+        WriteStorage<'s, PhysicsBox>,
         Read<'s, Time>,
     );
 
-    fn run(&mut self, (mut players, mut locals, time): Self::SystemData) {
+    fn run(&mut self, (mut players, mut physics_box, time): Self::SystemData) {
         let time_step = time.delta_seconds();
-        for player in (&mut players).join() {
+        for (player, physics) in (&mut players, &mut physics_box).join() {
+            player.initial_stance();
             player.game_counter += 1;
 
-            if player.on_ground && player.stance == PlayerStance::Climbing {
-                if player.intent.y < 0.0 {
-                    player.stance = PlayerStance::Standing;
-                    continue;
-                }
+            if player.on_ground && player.stance == PlayerStance::Climbing && player.intent.y < 0.0 {
+                player.stance = PlayerStance::Standing;
+                continue;
             }
+            player.maybe_jump(physics);
 
             if player.stance == PlayerStance::Climbing {
-                if player.intent.y != 0.0 || player.intent.x != 0.0 {
-                    player.climb_move(time_step);
-                } else {
-                    player.velocity.x = 0.0;
-                    player.velocity.y = 0.0;
-                }
+                player.climb_move(physics, time_step);
                 continue;
             }
 
             if player.on_ground {
                 if player.intent.x == 0.0 {
-                    player.ground_slide(time_step);
+                    player.ground_slide(physics, time_step);
                 } else {
-                    player.ground_move(time_step);
+                    player.ground_move(physics, time_step);
                 }
-                player.update_bounding_box();
+                player.update_bounding_box(physics);
             }  else {
-                player.fall(time_step);
-                player.update_bounding_box();
+                player.fall(physics, time_step);
+                player.update_bounding_box(physics);
             }
-        }
-
-        for (player, local) in (&players, &mut locals).join() {
-            local.prepend_translation_x(player.velocity.x * time_step);
-            local.prepend_translation_y(player.velocity.y * time_step);
+            debug!("Move: {:?}\nPlayer: {:?}", physics, player);
         }
     }
 }

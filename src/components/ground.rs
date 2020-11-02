@@ -2,37 +2,14 @@ use amethyst::{
     assets::Handle,
     core::{math::Vector2, Transform},
     ecs::{
-        Component, DenseVecStorage, Join,  ReadStorage, System, SystemData, World,
-        WriteStorage,
+        Join, ReadStorage, System, SystemData, World, WriteStorage,
     },
     prelude::*,
     renderer::{SpriteRender, SpriteSheet},
 };
 use serde::{Deserialize, Serialize};
-
-use crate::components::physics::{BoundingBox2D, Corners};
-use crate::components::player::{Player, PlayerStance};
-
-pub struct Ground {
-    pub bbox: BoundingBox2D,
-}
-
-impl Ground {
-    pub fn new(corner: Vector2<f32>) -> Self {
-        Self {
-            bbox: BoundingBox2D {
-                corners: Corners {
-                    bottom_left: corner,
-                    top_right: Vector2::new(corner.x + 16.0, corner.y + 24.0),
-                },
-            },
-        }
-    }
-}
-
-impl Component for Ground {
-    type Storage = DenseVecStorage<Self>;
-}
+use super::physics::{BoundingBox2D, PhysicsBox};
+use super::player::Player;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct GroundPosition {
@@ -71,52 +48,57 @@ pub fn initialize_ground(world: &mut World, sprite_sheet: Handle<SpriteSheet>) {
         world
             .create_entity()
             .with(sprite_render)
-            .with(Ground::new(elem.pos))
+            .with(BoundingBox2D::new(elem.pos, 16.0, 24.0))
             .with(transform)
             .build();
     }
 }
 
-fn compute_intersection_force(intersection: Vector2<f32>, transform: &mut Transform, player: &mut Player) {
+fn compute_intersection_force(intersection: Vector2<f32>,
+                              transform: &mut Transform,
+                              player: &mut Player,
+                              physics: &mut PhysicsBox) {
     // Hit the ground from the top
     if intersection.y > 0.0 {
-        player.on_ground = true;
-        transform.prepend_translation_y(intersection.y);
         // Ground should always be at an integer position.
         let y_pos = transform.translation().y;
+        player.on_ground = true;
+        transform.prepend_translation_y(intersection.y);
         transform.prepend_translation_y(-(y_pos - y_pos.round()));
         // Don't stop upwards motion.
-        player.velocity.y = player.velocity.y.max(0.0);
+        physics.velocity.y = physics.velocity.y.max(0.0);
     // Hit the ceiling from the bottom
     } else if intersection.y < 0.0 {
-        println!("hit bottom: {:?} {:?}", intersection, player.velocity);
         transform.prepend_translation_y(intersection.y);
-        player.velocity.y = -player.velocity.y;
+        physics.velocity.y = -physics.velocity.y;
     // Hit a wall.
     } else if intersection.x != 0.0 {
-        player.velocity.x = -player.velocity.x / 2.0;
         transform.prepend_translation_x(intersection.x);
+        physics.velocity.x = -physics.velocity.x / 2.0;
     }
 }
 
+/// The ContactPassSystem is for testing whether the player is already in contact with various
+/// bounding boxes.
 #[derive(SystemDesc)]
-pub struct GroundSystem;
+pub struct ContactPassSystem;
 
-impl<'s> System<'s> for GroundSystem {
+impl<'s> System<'s> for ContactPassSystem {
     type SystemData = (
         WriteStorage<'s, Player>,
-        ReadStorage<'s, Ground>,
+        ReadStorage<'s, BoundingBox2D>,
+        WriteStorage<'s, PhysicsBox>,
         WriteStorage<'s, Transform>,
     );
 
-    fn run(&mut self, (mut players, grounds, mut transforms): Self::SystemData) {
-        for (player, transform) in (&mut players, &mut transforms).join() {
+    fn run(&mut self, (mut players, grounds, mut physics_box, mut transforms): Self::SystemData) {
+        for (player, physics, transform) in (&mut players, &mut physics_box, &mut transforms).join() {
             player.on_ground = false;
             player.blocked = false;
 
             let player_position =
                 Vector2::new(transform.translation().x, transform.translation().y);
-            let player_box = player.bbox.translate(player_position);
+            let player_box = physics.bbox.translate(player_position);
 
             let point_above = Vector2::new(player_box.corners.x_midpoint(),
                                            player_box.corners.top() + 1.0);
@@ -132,26 +114,23 @@ impl<'s> System<'s> for GroundSystem {
             let mut intersection_above = false;
 
             for ground in (&grounds).join() {
+
                 let intersection_check = ground
-                    .bbox
-                    .shortest_manhattan_move(&player_box, player.velocity);
+                    .shortest_manhattan_move(&player_box, physics.velocity);
 
                 if let Some(intersection) = intersection_check {
-                    println!("intersection: {:?}", -intersection);
                     intersections.push(-intersection);
                 }
-
                 // Fall test. If the player moves down will they intersect the ground? If so they are
                 // on the ground. If not, they will fall.
-                intersection_below |= ground.bbox.intersects(&box_below);
-                intersection_crouched |= ground.bbox.contains(point_above_crouching);
-                intersection_above |= ground.bbox.contains(point_above);
+                intersection_below |= ground.intersects(&box_below);
+                intersection_crouched |= ground.contains(point_above_crouching);
+                intersection_above |= ground.contains(point_above);
             }
             player.on_ground = intersection_below;
 
             if intersection_below && intersection_above && (intersection_crouched || intersections.len() > 0) {
                 // The player is in a cramped space and colliding with an object. Force crouching.
-                player.stance = PlayerStance::Crouching;
                 player.blocked = true;
                 break;
             }
@@ -170,7 +149,7 @@ impl<'s> System<'s> for GroundSystem {
             }
 
             if let Some(intersection) = minimum_intersection {
-                compute_intersection_force(intersection, transform, player);
+                compute_intersection_force(intersection, transform, player, physics);
             }
         }
     }

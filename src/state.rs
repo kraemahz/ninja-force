@@ -20,6 +20,7 @@ use crate::components::camera::initialize_camera;
 use crate::components::ground::initialize_ground;
 use crate::components::items::initialize_items;
 use crate::components::player::initialize_player;
+use crate::components::score::initialize_score;
 
 /// Animation ids used in a AnimationSet
 #[derive(Eq, PartialOrd, PartialEq, Hash, Debug, Copy, Clone, Deserialize, Serialize)]
@@ -95,6 +96,7 @@ impl SimpleState for NinjaForce {
         initialize_items(world, item_sprite);
         initialize_player(world, player_sprite, Vector2::new(16., 24.));
         initialize_camera(world);
+        initialize_score(world);
     }
 
     fn update(&mut self, _data: &mut StateData<'_, GameData<'_, '_>>) -> SimpleTrans {

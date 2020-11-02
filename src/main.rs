@@ -22,12 +22,13 @@ use std::time::Duration;
 
 mod components;
 mod config;
+mod geometry;
 mod state;
 
 use crate::config::NinjaForceConfig;
 
 fn main() -> amethyst::Result<()> {
-    amethyst::start_logger(Default::default());
+    env_logger::init();
 
     let app_root = application_root_dir()?;
 
@@ -44,7 +45,7 @@ fn main() -> amethyst::Result<()> {
         .with_bundle(TransformBundle::new())?
         .with_bundle(input_bundle)?
         .with(
-            components::player::PlayerMovementSystem,
+            components::player::PlayerInputSystem,
             "movement_system",
             &["input_system"],
         )
@@ -54,17 +55,28 @@ fn main() -> amethyst::Result<()> {
             "camera_system",
             &[],
         )
-        .with(components::ground::GroundSystem, "ground_system", &[])
-        .with(components::items::InteractableItemSystem, "item_system", &["movement_system"])
         .with(
-            components::player::PlayerPhysicsSystem,
-            "player_physics_system",
+            components::ground::ContactPassSystem,
+            "ground_system",
+            &[])
+        .with(components::score::ScoreSystem, "score_system", &[])
+        .with(
+            components::items::InteractableItemSystem,
+            "item_system",
+            &["movement_system"])
+        .with(
+            components::player::PlayerVelocitySystem,
+            "player_velocity_system",
             &["ground_system", "movement_system"],
         )
         .with(
+            components::physics::MoveExecutionSystem,
+            "move_execution_system",
+            &["player_velocity_system"])
+        .with(
             components::player::PlayerSpriteSystem,
             "player_sprite_system",
-            &["player_physics_system"],
+            &["player_velocity_system"],
         )
         .with_bundle(UiBundle::<StringBindings>::new())?
         .with_bundle(

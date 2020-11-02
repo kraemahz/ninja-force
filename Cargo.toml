@@ -6,11 +6,12 @@ edition = "2018"
 
 [dependencies]
 lazy_static = "*"
-serde = {version = "*", features=["derive"]}
-serde_derive = "*"
+env_logger = "*"
+log = "*"
 objc = "=0.2.6"
 rand = "0.7"
-log = "*"
+serde = {version = "*", features=["derive"]}
+serde_derive = "*"
 
 [dependencies.amethyst]
 version = "0.13.2"

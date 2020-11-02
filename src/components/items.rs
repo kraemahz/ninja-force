@@ -14,8 +14,9 @@ use amethyst::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::components::physics::{BoundingBox2D, Corners};
-use crate::components::player::{PowerUp, Player, PlayerStance};
+use super::physics::{BoundingBox2D, PhysicsBox};
+use super::player::{PowerUp, Player, PlayerStance};
+use crate::geometry::Corners;
 
 
 #[derive(Debug, Copy, Clone, Deserialize, Serialize)]
@@ -28,16 +29,13 @@ pub enum ItemKind {
 #[derive(Debug)]
 pub struct Item {
     pub kind: ItemKind,
-    pub bbox: BoundingBox2D,
+    pub value: usize,
 }
 
 
 impl Item {
-    pub fn new(kind: ItemKind, corners: Corners) -> Self {
-        Self {
-            kind,
-            bbox: BoundingBox2D {corners}
-        }
+    pub fn new(kind: ItemKind) -> Self {
+        Self { kind, value: 1000 }
     }
 }
 
@@ -86,7 +84,8 @@ pub fn initialize_items(world: &mut World, sprite_sheet: Handle<SpriteSheet>) {
 
         world.create_entity()
             .with(sprite_render)
-            .with(Item::new(elem.kind, elem.corners))
+            .with(Item::new(elem.kind))
+            .with(PhysicsBox::new(BoundingBox2D{corners: elem.corners}))
             .with(transform)
             .build();
     }
@@ -99,20 +98,25 @@ pub struct InteractableItemSystem;
 impl<'s> System<'s> for InteractableItemSystem {
     type SystemData = (
         WriteStorage<'s, Player>,
+        WriteStorage<'s, PhysicsBox>,
         Entities<'s>,
         ReadStorage<'s, Item>,
         ReadStorage<'s, Transform>,
     );
 
-    fn run(&mut self, (mut players, entities, items, transforms): Self::SystemData) {
-        for (player, transform) in (&mut players, &transforms).join() {
+    fn run(&mut self, (mut players, mut physics_boxes, entities, items, transforms): Self::SystemData) {
+        let mut player_boxes: Vec<(&mut Player, BoundingBox2D)> = Vec::new();
+        for (player, physics, transform) in (&mut players, &physics_boxes, &transforms).join() {
             let player_position =
                 Vector2::new(transform.translation().x, transform.translation().y);
-            let player_box = player.bbox.translate(player_position);
+            let player_box = physics.bbox.translate(player_position);
+            player_boxes.push((player, player_box));
+        }
 
+        for (player, player_box) in player_boxes {
             let mut on_climbable = false;
-            for (entity, item) in (&*entities, &items).join() {
-                if item.bbox.intersects(&player_box) {
+            for (entity, item_physics, item) in (&*entities, &physics_boxes, &items).join() {
+                if item_physics.bbox.intersects(&player_box) {
                     match item.kind {
                         ItemKind::Climbable => {
                             on_climbable = true;
@@ -122,6 +126,7 @@ impl<'s> System<'s> for InteractableItemSystem {
                         },
                         ItemKind::Collectable(power_up) => {
                             player.collect(power_up);
+                            player.score += item.value;
                             entities.delete(entity).ok();
                         },
                         _ => {}
