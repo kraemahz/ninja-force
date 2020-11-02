@@ -5,13 +5,20 @@ authors = []
 edition = "2018"
 
 [dependencies]
+lazy_static = "*"
+env_logger = "*"
+log = "*"
+objc = "=0.2.6"
+rand = "0.7"
+serde = {version = "*", features=["derive"]}
+serde_derive = "*"
 
 [dependencies.amethyst]
-version = "0.12.0"
-features = ["nightly"]
+version = "0.13.2"
+path = "../amethyst"
 
 [features]
-default = ["vulkan"]
+default = ["metal"]
 empty = ["amethyst/empty"]
 metal = ["amethyst/metal"]
 vulkan = ["amethyst/vulkan"]

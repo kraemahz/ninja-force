@@ -1,0 +1,10 @@
+(
+    axes: {
+        "y": Emulated(pos: Key(W), neg: Key(S)),
+        "x": Emulated(pos: Key(D), neg: Key(A)),
+    },
+    actions: {
+        "jump": [ [Key(Space)] ],
+        "run": [ [Key(LShift)] ],
+    },
+)
